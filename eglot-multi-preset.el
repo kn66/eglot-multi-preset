@@ -1,0 +1,225 @@
+;;; eglot-multi-preset.el --- Multi-server LSP preset selection for eglot -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2026 Free Software Foundation, Inc.
+
+;; Author: Nobuyuki
+;; Version: 0.1.0
+;; Package-Requires: ((emacs "27.1") (eglot "1.17"))
+;; Keywords: languages, tools
+;; URL: https://github.com/Nobuyuki/.emacs.d
+
+;; This file is part of GNU Emacs.
+
+;; GNU Emacs is free software: you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
+
+;; GNU Emacs is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+
+;; You should have received a copy of the GNU General Public License
+;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
+
+;;; Commentary:
+
+;; eglot-multi-preset provides a mechanism for selecting LSP server presets
+;; when starting eglot.  This is particularly useful when working with
+;; LSP multiplexers like rassumfrassum (rass) where different projects
+;; may require different server combinations.
+;;
+;; This package is designed for MULTI-SERVER configurations only.
+;; Single-server setups should use `eglot-server-programs' directly.
+;;
+;; Default presets included:
+;;   - Python: "rass: ty + ruff" (type checking + linting/formatting)
+;;   - TypeScript/JS: "rass: ts-ls + eslint" and "rass: ts-ls + eslint + tailwind"
+;;
+;; Usage:
+;;
+;; 1. Enable eglot-multi-preset-mode:
+;;
+;;    (eglot-multi-preset-mode 1)
+;;
+;; 2. Now when you run M-x eglot in Python or TypeScript buffers,
+;;    you will be prompted to select which preset to use.
+;;    "eglot default" uses the standard eglot-server-programs configuration.
+;;
+;; 3. To add custom presets:
+;;
+;;    (eglot-multi-preset-register 'vue-mode "rass: vue + tailwind"
+;;      '("rass" "--" "vue-language-server" "--stdio"
+;;        "--" "tailwindcss-language-server" "--stdio"))
+
+;;; Code:
+
+(require 'eglot)
+(require 'cl-lib)
+
+;;; Customization group
+
+(defgroup eglot-multi-preset nil
+  "Multi-server LSP preset selection for eglot."
+  :group 'eglot
+  :prefix "eglot-multi-preset-")
+
+;;; Core data structure
+
+(defcustom eglot-multi-preset-alist
+  '(;; Python: rass preset combining ty (type checker) + ruff (linter/formatter)
+    ((python-mode python-ts-mode)
+     . (("rass: ty + ruff" . ("rass" "python"))))
+    ;; TypeScript/JavaScript: rass presets for multi-server configurations
+    ((typescript-mode typescript-ts-mode tsx-ts-mode js-mode js-ts-mode)
+     . (("rass: ts-ls + eslint" . ("rass" "ts"))
+        ("rass: ts-ls + eslint + tailwind"
+         . ("rass" "--" "typescript-language-server" "--stdio"
+            "--" "vscode-eslint-language-server" "--stdio"
+            "--" "tailwindcss-language-server" "--stdio")))))
+  "Alist mapping major modes to their LSP server presets.
+Each entry is (MODE-OR-MODES . PRESETS) where:
+
+MODE-OR-MODES is:
+  - A single major mode symbol (e.g., `python-mode')
+  - A list of major mode symbols (e.g., (typescript-mode tsx-ts-mode))
+
+PRESETS is a list of (PRESET-NAME . CONTACT) pairs where:
+  - PRESET-NAME is a string identifying the preset
+  - CONTACT is a list (PROGRAM ARGS...) suitable for eglot
+
+Note: Single-server configurations should use `eglot-server-programs'
+directly.  This package is for multi-server configurations using
+LSP multiplexers like rass (rassumfrassum).
+
+The default value includes:
+  - Python: rass preset with ty + ruff
+  - TypeScript/JS: rass presets with ts-ls + eslint, and ts-ls + eslint + tailwind"
+  :type '(alist :key-type (choice symbol (repeat symbol))
+                :value-type (alist :key-type string :value-type sexp))
+  :group 'eglot-multi-preset)
+
+(defcustom eglot-multi-preset-default-label "eglot default"
+  "Label for the default eglot server option in preset selection."
+  :type 'string
+  :group 'eglot-multi-preset)
+
+;;; Internal functions
+
+(defun eglot-multi-preset--normalize-modes (mode-spec)
+  "Normalize MODE-SPEC to a list of mode symbols.
+MODE-SPEC can be a single symbol or a list of symbols."
+  (if (listp mode-spec)
+      mode-spec
+    (list mode-spec)))
+
+(defun eglot-multi-preset--mode-matches-p (mode mode-spec)
+  "Check if MODE matches MODE-SPEC.
+MODE-SPEC can be a single mode symbol or a list of mode symbols.
+Also checks parent modes for inheritance."
+  (let ((modes (eglot-multi-preset--normalize-modes mode-spec)))
+    (or (memq mode modes)
+        ;; Check parent mode
+        (let ((parent (get mode 'derived-mode-parent)))
+          (and parent
+               (eglot-multi-preset--mode-matches-p parent mode-spec))))))
+
+(defun eglot-multi-preset--lookup-mode-presets (mode)
+  "Look up presets for MODE from `eglot-multi-preset-alist'.
+Returns the presets alist for MODE, or nil if no presets are registered.
+Also checks parent modes for inheritance."
+  (catch 'found
+    (dolist (entry eglot-multi-preset-alist)
+      (let ((mode-spec (car entry))
+            (presets (cdr entry)))
+        (when (eglot-multi-preset--mode-matches-p mode mode-spec)
+          (throw 'found presets))))
+    nil))
+
+(defun eglot-multi-preset--get-contact (preset-name mode)
+  "Get contact specification for PRESET-NAME in MODE.
+Returns the contact list for the preset, or nil if PRESET-NAME
+is the default label (`eglot-multi-preset-default-label')."
+  (unless (string= preset-name eglot-multi-preset-default-label)
+    (let ((presets (eglot-multi-preset--lookup-mode-presets mode)))
+      (cdr (assoc preset-name presets)))))
+
+(defun eglot-multi-preset--build-candidates (mode)
+  "Build completion candidates for MODE.
+Returns list starting with the default label followed by mode-specific presets."
+  (let ((presets (eglot-multi-preset--lookup-mode-presets mode)))
+    (cons eglot-multi-preset-default-label (mapcar #'car presets))))
+
+;;; Eglot integration (advice)
+
+(defun eglot-multi-preset--maybe-select-preset (orig-fun &rest args)
+  "Advice for `eglot' to prompt for preset selection.
+If presets are registered for the current mode and no server is
+running, show selection UI.  Otherwise, call ORIG-FUN with ARGS as-is."
+  (let ((presets (eglot-multi-preset--lookup-mode-presets major-mode)))
+    (if (and presets (not (eglot-current-server)))
+        ;; Presets exist and no server running - show selection
+        (let* ((candidates (eglot-multi-preset--build-candidates major-mode))
+               (selected (completing-read "LSP preset: " candidates nil t)))
+          (if (string= selected eglot-multi-preset-default-label)
+              ;; "eglot default" selected - use standard eglot
+              (apply orig-fun args)
+            ;; Custom preset selected
+            (let ((contact (eglot-multi-preset--get-contact selected major-mode)))
+              (eglot major-mode (project-current t) contact))))
+      ;; No presets or server already running - normal behavior
+      (apply orig-fun args))))
+
+;;;###autoload
+(define-minor-mode eglot-multi-preset-mode
+  "Global minor mode to enable preset selection on eglot startup.
+When enabled, running `eglot' in a buffer with registered presets
+will prompt for preset selection via `completing-read'.
+The first option is always \"eglot default\" which uses the standard
+`eglot-server-programs' configuration."
+  :global t
+  :group 'eglot-multi-preset
+  :lighter " EgMP"
+  (if eglot-multi-preset-mode
+      (advice-add 'eglot :around #'eglot-multi-preset--maybe-select-preset)
+    (advice-remove 'eglot #'eglot-multi-preset--maybe-select-preset)))
+
+;;; Programmatic API
+
+;;;###autoload
+(defun eglot-multi-preset-register (mode preset-name contact)
+  "Register a preset for MODE.
+MODE is a major mode symbol.
+PRESET-NAME is a string identifying the preset.
+CONTACT is a list (PROGRAM ARGS...) for eglot.
+
+Example:
+  (eglot-multi-preset-register \\='python-mode \"my-preset\" \\='(\"my-server\" \"--stdio\"))"
+  (let ((existing (assoc mode eglot-multi-preset-alist)))
+    (if existing
+        ;; Mode already has presets - add or update
+        (let ((presets (cdr existing)))
+          (if (assoc preset-name presets)
+              ;; Update existing preset
+              (setcdr (assoc preset-name presets) contact)
+            ;; Add new preset
+            (setcdr existing (cons (cons preset-name contact) presets))))
+      ;; New mode entry
+      (push (cons mode (list (cons preset-name contact))) eglot-multi-preset-alist))))
+
+;;;###autoload
+(defun eglot-multi-preset-unregister (mode preset-name)
+  "Unregister a preset from MODE.
+MODE is a major mode symbol.
+PRESET-NAME is the string identifying the preset to remove."
+  (let ((existing (assoc mode eglot-multi-preset-alist)))
+    (when existing
+      (let ((presets (cdr existing)))
+        (setcdr existing (assoc-delete-all preset-name presets))
+        ;; Remove mode entry if no presets remain
+        (unless (cdr existing)
+          (setq eglot-multi-preset-alist (assq-delete-all mode eglot-multi-preset-alist)))))))
+
+(provide 'eglot-multi-preset)
+;;; eglot-multi-preset.el ends here
