@@ -153,7 +153,7 @@ Interactively remove saved eglot configuration from =.dir-locals.el= for the cur
 * Related Packages
 
 - [[https://github.com/joaotavora/eglot][Eglot]] - The Emacs LSP client this package extends
-- [[https://github.com/AshleyYakeley/rassumfrassum][rass (rassumfrassum)]] - LSP multiplexer for combining multiple language servers
+- [[https://github.com/joaotavora/rassumfrassum][rass (rassumfrassum)]] - LSP multiplexer for combining multiple language servers
 
 * License
 
