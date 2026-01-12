@@ -153,20 +153,27 @@ Returns list starting with the default label followed by mode-specific presets."
 
 ;;; Eglot integration (advice)
 
+(defvar eglot-multi-preset--in-progress nil
+  "Non-nil when preset selection is in progress.
+Used to prevent recursive advice calls.")
+
 (defun eglot-multi-preset--maybe-select-preset (orig-fun &rest args)
   "Advice for `eglot' to prompt for preset selection.
 If presets are registered for the current mode and no server is
 running, show selection UI.  Otherwise, call ORIG-FUN with ARGS as-is."
   (let ((presets (eglot-multi-preset--lookup-mode-presets major-mode)))
-    (if (and presets (not (eglot-current-server)))
+    (if (and presets
+             (not (eglot-current-server))
+             (not eglot-multi-preset--in-progress))
         ;; Presets exist and no server running - show selection
         (let* ((candidates (eglot-multi-preset--build-candidates major-mode))
                (selected (completing-read "LSP preset: " candidates nil t)))
           (if (string= selected eglot-multi-preset-default-label)
               ;; "eglot default" selected - use standard eglot
               (apply orig-fun args)
-            ;; Custom preset selected
-            (let ((contact (eglot-multi-preset--get-contact selected major-mode)))
+            ;; Custom preset selected - set flag to prevent recursion
+            (let ((eglot-multi-preset--in-progress t)
+                  (contact (eglot-multi-preset--get-contact selected major-mode)))
               (eglot major-mode (project-current t) contact))))
       ;; No presets or server already running - normal behavior
       (apply orig-fun args))))
