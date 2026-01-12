@@ -82,21 +82,45 @@
   :group 'eglot
   :prefix "eglot-multi-preset-")
 
+;;; Windows compatibility helpers
+
+(defconst eglot-multi-preset--windows-p
+  (memq system-type '(windows-nt ms-dos))
+  "Non-nil if running on Windows.")
+
+(defun eglot-multi-preset--executable-name (name)
+  "Return NAME with `.cmd' suffix on Windows if needed.
+On Windows, Node.js CLI tools installed via npm are provided as
+.cmd batch files.  This function adds the suffix automatically
+unless NAME already ends with `.cmd' or `.exe'."
+  (if (and eglot-multi-preset--windows-p
+           (not (string-match-p "\\.\\(cmd\\|exe\\)\\'" name)))
+      (concat name ".cmd")
+    name))
+
+(defun eglot-multi-preset--make-default-alist ()
+  "Generate the default preset alist with platform-appropriate executable names."
+  (let ((rass (eglot-multi-preset--executable-name "rass"))
+        (ts-ls (eglot-multi-preset--executable-name "typescript-language-server"))
+        (eslint (eglot-multi-preset--executable-name "vscode-eslint-language-server"))
+        (tailwind (eglot-multi-preset--executable-name "tailwindcss-language-server")))
+    `(;; Python: rass preset combining ty (type checker) + ruff (linter/formatter)
+      ((python-mode python-ts-mode)
+       . (("rass: ty + ruff" . (,rass "python"))))
+      ;; TypeScript/JavaScript: rass presets for multi-server configurations
+      ((typescript-mode typescript-ts-mode tsx-ts-mode js-mode js-ts-mode)
+       . (("rass: ts-ls + eslint"
+           . (,rass "--" ,ts-ls "--stdio"
+              "--" ,eslint "--stdio"))
+          ("rass: ts-ls + eslint + tailwind"
+           . (,rass "--" ,ts-ls "--stdio"
+              "--" ,eslint "--stdio"
+              "--" ,tailwind "--stdio")))))))
+
 ;;; Core data structure
 
 (defcustom eglot-multi-preset-alist
-  '(;; Python: rass preset combining ty (type checker) + ruff (linter/formatter)
-    ((python-mode python-ts-mode)
-     . (("rass: ty + ruff" . ("rass" "python"))))
-    ;; TypeScript/JavaScript: rass presets for multi-server configurations
-    ((typescript-mode typescript-ts-mode tsx-ts-mode js-mode js-ts-mode)
-     . (("rass: ts-ls + eslint"
-         . ("rass" "--" "typescript-language-server" "--stdio"
-            "--" "vscode-eslint-language-server" "--stdio"))
-        ("rass: ts-ls + eslint + tailwind"
-         . ("rass" "--" "typescript-language-server" "--stdio"
-            "--" "vscode-eslint-language-server" "--stdio"
-            "--" "tailwindcss-language-server" "--stdio")))))
+  (eglot-multi-preset--make-default-alist)
   "Alist mapping major modes to their LSP server presets.
 Each entry is (MODE-OR-MODES . PRESETS) where:
 

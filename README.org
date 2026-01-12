@@ -105,6 +105,19 @@ Directory where =.dir-locals.el= should be saved. If =nil= (default), uses the p
   (setq eglot-multi-preset-dir-locals-directory "/path/to/config/dir")
 #+end_src
 
+* Windows Support
+
+On Windows, Node.js CLI tools installed via npm are provided as =.cmd= batch files (e.g., =rass.cmd=, =typescript-language-server.cmd=). This package automatically detects Windows and appends the =.cmd= suffix to executable names in the default presets.
+
+If you register custom presets with =eglot-multi-preset-register=, you may need to handle platform-specific executable names yourself:
+
+#+begin_src emacs-lisp
+  ;; Use the built-in helper for cross-platform compatibility
+  (eglot-multi-preset-register 'vue-mode "rass: vue"
+    `(,(eglot-multi-preset--executable-name "rass")
+      "--" ,(eglot-multi-preset--executable-name "vue-language-server") "--stdio"))
+#+end_src
+
 * Default Presets
 
 The package includes these default presets:
