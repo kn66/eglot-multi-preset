@@ -2,9 +2,9 @@
 
 ;; Copyright (C) 2026 Free Software Foundation, Inc.
 
-;; Author: Nobuyuki
+;; Author: kn66
 ;; Version: 0.1.0
-;; Package-Requires: ((emacs "27.1") (eglot "1.17"))
+;; Package-Requires: ((emacs "30.1") (eglot "1.20"))
 ;; Keywords: languages, tools
 ;; URL: https://github.com/Nobuyuki/.emacs.d
 
