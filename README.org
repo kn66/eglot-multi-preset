@@ -1,0 +1,159 @@
+#+TITLE: eglot-multi-preset
+#+AUTHOR: kn66
+
+Multi-server LSP preset selection for Eglot.
+
+* Overview
+
+=eglot-multi-preset= provides a mechanism for selecting LSP server presets when starting Eglot. This is particularly useful when working with LSP multiplexers like [[https://github.com/AshleyYakeley/rassumfrassum][rass (rassumfrassum)]] where different projects may require different server combinations.
+
+*Important:* This package is designed for *multi-server configurations only*. Single-server setups should use =eglot-server-programs= directly.
+
+* Features
+
+- Interactive preset selection via =completing-read= when starting Eglot
+- Automatic persistence of selected presets to =.dir-locals.el=
+- Support for per-project preset configuration
+- Force re-selection with =C-u M-x eglot=
+- Programmatic API for registering custom presets
+- Mode inheritance support (e.g., =python-ts-mode= inherits from =python-mode=)
+
+* Requirements
+
+- Emacs 30.1 or later
+- Eglot 1.20 or later
+
+* Installation
+
+** Manual Installation
+
+Clone or download this repository, then add to your =load-path=:
+
+#+begin_src emacs-lisp
+(add-to-list 'load-path "/path/to/eglot-multi-preset")
+(require 'eglot-multi-preset)
+#+end_src
+
+** With use-package
+
+#+begin_src emacs-lisp
+(use-package eglot-multi-preset
+  :load-path "/path/to/eglot-multi-preset"
+  :config
+  (eglot-multi-preset-mode 1))
+#+end_src
+
+* Quick Start
+
+1. Enable the mode:
+
+   #+begin_src emacs-lisp
+   (eglot-multi-preset-mode 1)
+   #+end_src
+
+2. Open a Python or TypeScript file and run =M-x eglot=
+
+3. Select a preset from the completion menu:
+   - "eglot default" uses the standard =eglot-server-programs=
+   - Other options are multi-server presets (e.g., "rass: ty + ruff")
+
+4. When prompted, choose whether to save the selection to =.dir-locals.el=
+
+5. Next time you run =M-x eglot= in the same project, the saved preset is used automatically
+
+6. To force preset re-selection: =C-u M-x eglot=
+
+* Configuration
+
+** =eglot-multi-preset-alist=
+
+Alist mapping major modes to their LSP server presets. Each entry is =(MODE-OR-MODES . PRESETS)= where:
+
+- =MODE-OR-MODES= is a single mode symbol or list of mode symbols
+- =PRESETS= is a list of =(PRESET-NAME . CONTACT)= pairs
+
+#+begin_src emacs-lisp
+(setq eglot-multi-preset-alist
+      '(((python-mode python-ts-mode)
+         . (("rass: ty + ruff" . ("rass" "python"))
+            ("rass: pyright + ruff" . ("rass" "--" "pyright-langserver" "--stdio"
+                                       "--" "ruff" "server"))))
+        ((typescript-mode typescript-ts-mode)
+         . (("rass: ts-ls + eslint"
+             . ("rass" "--" "typescript-language-server" "--stdio"
+                "--" "vscode-eslint-language-server" "--stdio"))))))
+#+end_src
+
+** =eglot-multi-preset-auto-save=
+
+Controls automatic saving of selected presets to =.dir-locals.el=:
+
+- =ask= (default): Prompt before saving
+- =always=: Save without prompting
+- =never=: Never save
+
+#+begin_src emacs-lisp
+(setq eglot-multi-preset-auto-save 'always)
+#+end_src
+
+** =eglot-multi-preset-dir-locals-directory=
+
+Directory where =.dir-locals.el= should be saved. If =nil= (default), uses the project root.
+
+#+begin_src emacs-lisp
+(setq eglot-multi-preset-dir-locals-directory "/path/to/config/dir")
+#+end_src
+
+* Default Presets
+
+The package includes these default presets:
+
+** Python
+
+| Preset          | Servers                                 |
+|-----------------+-----------------------------------------|
+| rass: ty + ruff | ty (type checker) + ruff (linter/formatter) |
+
+** TypeScript/JavaScript
+
+| Preset                         | Servers                                         |
+|--------------------------------+-------------------------------------------------|
+| rass: ts-ls + eslint           | typescript-language-server + eslint             |
+| rass: ts-ls + eslint + tailwind | typescript-language-server + eslint + tailwindcss |
+
+* Custom Preset API
+
+** =eglot-multi-preset-register=
+
+Register a new preset for a mode:
+
+#+begin_src emacs-lisp
+(eglot-multi-preset-register 'vue-mode "rass: vue + tailwind"
+  '("rass" "--" "vue-language-server" "--stdio"
+    "--" "tailwindcss-language-server" "--stdio"))
+#+end_src
+
+** =eglot-multi-preset-unregister=
+
+Remove a preset:
+
+#+begin_src emacs-lisp
+(eglot-multi-preset-unregister 'vue-mode "rass: vue + tailwind")
+#+end_src
+
+** =eglot-multi-preset-clear-dir-locals=
+
+Interactively remove saved eglot configuration from =.dir-locals.el= for the current mode:
+
+#+begin_src emacs-lisp
+M-x eglot-multi-preset-clear-dir-locals
+#+end_src
+
+* Related Packages
+
+- [[https://github.com/joaotavora/eglot][Eglot]] - The Emacs LSP client this package extends
+- [[https://github.com/AshleyYakeley/rassumfrassum][rass (rassumfrassum)]] - LSP multiplexer for combining multiple language servers
+
+* License
+
+This package is distributed under the MIT License. See the [[file:LICENSE][LICENSE]] file for details.
