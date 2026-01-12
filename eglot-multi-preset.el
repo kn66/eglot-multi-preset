@@ -128,6 +128,16 @@ If set to a path, uses that directory instead."
                  (directory :tag "Custom directory"))
   :group 'eglot-multi-preset)
 
+(defcustom eglot-multi-preset-auto-save 'ask
+  "Whether to automatically save selected presets to `.dir-locals.el'.
+- `ask': Prompt before saving (default)
+- `always': Always save without prompting
+- `never': Never save to .dir-locals.el"
+  :type '(choice (const :tag "Ask before saving" ask)
+                 (const :tag "Always save" always)
+                 (const :tag "Never save" never))
+  :group 'eglot-multi-preset)
+
 ;;; Internal functions
 
 (defun eglot-multi-preset--get-dir-locals-directory ()
@@ -147,8 +157,7 @@ otherwise returns the project root directory."
 (defun eglot-multi-preset--dir-locals-has-eglot-config-p ()
   "Check if `.dir-locals.el' has `eglot-server-programs' for current mode.
 Returns the eglot-server-programs value if found, nil otherwise."
-  (let* ((dir-locals-file (eglot-multi-preset--dir-locals-file))
-         (dir-locals-dir (file-name-directory dir-locals-file)))
+  (let ((dir-locals-file (eglot-multi-preset--dir-locals-file)))
     (when (file-exists-p dir-locals-file)
       (let ((dir-locals-content
              (with-temp-buffer
@@ -169,40 +178,43 @@ Returns the eglot-server-programs value if found, nil otherwise."
 CONTACT is the server contact specification to save.
 DIR is the directory where `.dir-locals.el' will be saved.
 MODE is the major mode to associate with the configuration."
-  (let* ((dir-locals-file (expand-file-name ".dir-locals.el" dir))
-         (server-entry (list (cons (list mode) contact))))
-    ;; Ensure directory exists
-    (unless (file-exists-p dir)
-      (make-directory dir t))
-    ;; Use add-dir-local-variable approach by manipulating the file directly
-    (with-current-buffer (find-file-noselect dir-locals-file)
-      (goto-char (point-min))
-      (let ((content (condition-case nil
-                         (read (current-buffer))
-                       (error nil))))
-        ;; Find or create mode entry
-        (let ((mode-entry (assq mode content)))
-          (if mode-entry
-              ;; Update existing mode entry
-              (let ((var-entry (assq 'eglot-server-programs (cdr mode-entry))))
-                (if var-entry
-                    (setcdr var-entry server-entry)
-                  (setcdr mode-entry
-                          (cons (cons 'eglot-server-programs server-entry)
-                                (cdr mode-entry)))))
-            ;; Add new mode entry
-            (setq content
-                  (cons (cons mode
-                              (list (cons 'eglot-server-programs server-entry)))
-                        content))))
-        ;; Write back
-        (erase-buffer)
-        (insert ";;; Directory Local Variables -*- no-byte-compile: t -*-\n")
-        (insert ";;; For more information see (info \"(emacs) Directory Variables\")\n\n")
-        (pp content (current-buffer))
-        (save-buffer)
-        (kill-buffer)))
-    (message "Saved eglot preset to %s" dir-locals-file)))
+  (condition-case err
+      (let* ((dir-locals-file (expand-file-name ".dir-locals.el" dir))
+             (server-entry (list (cons (list mode) contact))))
+        ;; Ensure directory exists
+        (unless (file-exists-p dir)
+          (make-directory dir t))
+        ;; Use add-dir-local-variable approach by manipulating the file directly
+        (with-current-buffer (find-file-noselect dir-locals-file)
+          (goto-char (point-min))
+          (let ((content (condition-case nil
+                             (read (current-buffer))
+                           (error nil))))
+            ;; Find or create mode entry
+            (let ((mode-entry (assq mode content)))
+              (if mode-entry
+                  ;; Update existing mode entry
+                  (let ((var-entry (assq 'eglot-server-programs (cdr mode-entry))))
+                    (if var-entry
+                        (setcdr var-entry server-entry)
+                      (setcdr mode-entry
+                              (cons (cons 'eglot-server-programs server-entry)
+                                    (cdr mode-entry)))))
+                ;; Add new mode entry
+                (setq content
+                      (cons (cons mode
+                                  (list (cons 'eglot-server-programs server-entry)))
+                            content))))
+            ;; Write back
+            (erase-buffer)
+            (insert ";;; Directory Local Variables -*- no-byte-compile: t -*-\n")
+            (insert ";;; For more information see (info \"(emacs) Directory Variables\")\n\n")
+            (pp content (current-buffer))
+            (save-buffer)
+            (kill-buffer)))
+        (message "Saved eglot preset to %s" dir-locals-file))
+    (error
+     (message "Failed to save eglot preset: %s" (error-message-string err)))))
 
 (defun eglot-multi-preset--normalize-modes (mode-spec)
   "Normalize MODE-SPEC to a list of mode symbols.
@@ -271,6 +283,7 @@ With prefix argument, force preset selection even if dir-locals exists."
       (apply orig-fun args))
      ;; Dir-locals config exists and not forcing - use it
      ((and existing-config (not force-selection))
+      (message "Using eglot preset from .dir-locals.el")
       (let ((eglot-server-programs
              (append existing-config eglot-server-programs)))
         (apply orig-fun args)))
@@ -287,11 +300,12 @@ With prefix argument, force preset selection even if dir-locals exists."
                  (eglot-server-programs
                   (cons (cons (list major-mode) contact)
                         eglot-server-programs)))
-            ;; Ask to save if not already in dir-locals or different from saved
+            ;; Save based on eglot-multi-preset-auto-save setting
             (when (and contact
-                       (or (not existing-config)
-                           force-selection)
-                       (y-or-n-p "Save this preset to .dir-locals.el? "))
+                       (or (not existing-config) force-selection)
+                       (not (eq eglot-multi-preset-auto-save 'never))
+                       (or (eq eglot-multi-preset-auto-save 'always)
+                           (y-or-n-p "Save this preset to .dir-locals.el? ")))
               (let ((save-dir (read-directory-name
                                "Save .dir-locals.el to: "
                                (eglot-multi-preset--get-dir-locals-directory)
@@ -348,6 +362,43 @@ PRESET-NAME is the string identifying the preset to remove."
         ;; Remove mode entry if no presets remain
         (unless (cdr existing)
           (setq eglot-multi-preset-alist (assq-delete-all mode eglot-multi-preset-alist)))))))
+
+;;;###autoload
+(defun eglot-multi-preset-clear-dir-locals ()
+  "Remove eglot-server-programs from `.dir-locals.el' for current mode.
+This allows you to reset the saved preset and be prompted again."
+  (interactive)
+  (let ((dir-locals-file (eglot-multi-preset--dir-locals-file)))
+    (if (not (file-exists-p dir-locals-file))
+        (message "No .dir-locals.el found at %s" dir-locals-file)
+      (with-current-buffer (find-file-noselect dir-locals-file)
+        (goto-char (point-min))
+        (let ((content (condition-case nil
+                           (read (current-buffer))
+                         (error nil))))
+          (when content
+            (let ((mode-entry (assq major-mode content)))
+              (if (not mode-entry)
+                  (message "No eglot preset found for %s in .dir-locals.el" major-mode)
+                ;; Remove eglot-server-programs from mode entry
+                (setcdr mode-entry
+                        (assq-delete-all 'eglot-server-programs (cdr mode-entry)))
+                ;; Remove mode entry if empty
+                (unless (cdr mode-entry)
+                  (setq content (assq-delete-all major-mode content)))
+                ;; Write back
+                (erase-buffer)
+                (if content
+                    (progn
+                      (insert ";;; Directory Local Variables -*- no-byte-compile: t -*-\n")
+                      (insert ";;; For more information see (info \"(emacs) Directory Variables\")\n\n")
+                      (pp content (current-buffer)))
+                  (insert ";;; Directory Local Variables -*- no-byte-compile: t -*-\n")
+                  (insert ";;; For more information see (info \"(emacs) Directory Variables\")\n\n")
+                  (insert "()\n"))
+                (save-buffer)
+                (message "Cleared eglot preset for %s from %s" major-mode dir-locals-file)))))
+        (kill-buffer)))))
 
 (provide 'eglot-multi-preset)
 ;;; eglot-multi-preset.el ends here
