@@ -30,17 +30,18 @@ Multi-server LSP preset selection for Eglot.
 Clone or download this repository, then add to your =load-path=:
 
 #+begin_src emacs-lisp
-(add-to-list 'load-path "/path/to/eglot-multi-preset")
-(require 'eglot-multi-preset)
+  (add-to-list 'load-path "/path/to/eglot-multi-preset")
+  (require 'eglot-multi-preset)
 #+end_src
 
 ** With use-package
 
 #+begin_src emacs-lisp
-(use-package eglot-multi-preset
-  :load-path "/path/to/eglot-multi-preset"
-  :config
-  (eglot-multi-preset-mode 1))
+  (use-package eglot-multi-preset
+    :vc ( :url "https://github.com/kn66/eglot-multi-preset.git"
+          :rev :newest)
+    :config
+    (eglot-multi-preset-mode 1))
 #+end_src
 
 * Quick Start
@@ -48,7 +49,7 @@ Clone or download this repository, then add to your =load-path=:
 1. Enable the mode:
 
    #+begin_src emacs-lisp
-   (eglot-multi-preset-mode 1)
+     (eglot-multi-preset-mode 1)
    #+end_src
 
 2. Open a Python or TypeScript file and run =M-x eglot=
@@ -73,15 +74,15 @@ Alist mapping major modes to their LSP server presets. Each entry is =(MODE-OR-M
 - =PRESETS= is a list of =(PRESET-NAME . CONTACT)= pairs
 
 #+begin_src emacs-lisp
-(setq eglot-multi-preset-alist
-      '(((python-mode python-ts-mode)
-         . (("rass: ty + ruff" . ("rass" "python"))
-            ("rass: pyright + ruff" . ("rass" "--" "pyright-langserver" "--stdio"
-                                       "--" "ruff" "server"))))
-        ((typescript-mode typescript-ts-mode)
-         . (("rass: ts-ls + eslint"
-             . ("rass" "--" "typescript-language-server" "--stdio"
-                "--" "vscode-eslint-language-server" "--stdio"))))))
+  (setq eglot-multi-preset-alist
+        '(((python-mode python-ts-mode)
+           . (("rass: ty + ruff" . ("rass" "python"))
+              ("rass: pyright + ruff" . ("rass" "--" "pyright-langserver" "--stdio"
+                                         "--" "ruff" "server"))))
+          ((typescript-mode typescript-ts-mode)
+           . (("rass: ts-ls + eslint"
+               . ("rass" "--" "typescript-language-server" "--stdio"
+                  "--" "vscode-eslint-language-server" "--stdio"))))))
 #+end_src
 
 ** =eglot-multi-preset-auto-save=
@@ -93,7 +94,7 @@ Controls automatic saving of selected presets to =.dir-locals.el=:
 - =never=: Never save
 
 #+begin_src emacs-lisp
-(setq eglot-multi-preset-auto-save 'always)
+  (setq eglot-multi-preset-auto-save 'always)
 #+end_src
 
 ** =eglot-multi-preset-dir-locals-directory=
@@ -101,7 +102,7 @@ Controls automatic saving of selected presets to =.dir-locals.el=:
 Directory where =.dir-locals.el= should be saved. If =nil= (default), uses the project root.
 
 #+begin_src emacs-lisp
-(setq eglot-multi-preset-dir-locals-directory "/path/to/config/dir")
+  (setq eglot-multi-preset-dir-locals-directory "/path/to/config/dir")
 #+end_src
 
 * Default Presets
@@ -128,9 +129,9 @@ The package includes these default presets:
 Register a new preset for a mode:
 
 #+begin_src emacs-lisp
-(eglot-multi-preset-register 'vue-mode "rass: vue + tailwind"
-  '("rass" "--" "vue-language-server" "--stdio"
-    "--" "tailwindcss-language-server" "--stdio"))
+  (eglot-multi-preset-register 'vue-mode "rass: vue + tailwind"
+                               '("rass" "--" "vue-language-server" "--stdio"
+                                 "--" "tailwindcss-language-server" "--stdio"))
 #+end_src
 
 ** =eglot-multi-preset-unregister=
@@ -138,7 +139,7 @@ Register a new preset for a mode:
 Remove a preset:
 
 #+begin_src emacs-lisp
-(eglot-multi-preset-unregister 'vue-mode "rass: vue + tailwind")
+  (eglot-multi-preset-unregister 'vue-mode "rass: vue + tailwind")
 #+end_src
 
 ** =eglot-multi-preset-clear-dir-locals=
@@ -146,7 +147,7 @@ Remove a preset:
 Interactively remove saved eglot configuration from =.dir-locals.el= for the current mode:
 
 #+begin_src emacs-lisp
-M-x eglot-multi-preset-clear-dir-locals
+  M-x eglot-multi-preset-clear-dir-locals
 #+end_src
 
 * Related Packages
