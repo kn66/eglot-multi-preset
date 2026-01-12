@@ -16,6 +16,7 @@
 ;; (at your option) any later version.
 
 ;; GNU Emacs is distributed in the hope that it will be useful,
+
 ;; but WITHOUT ANY WARRANTY; without even the implied warranty of
 ;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 ;; GNU General Public License for more details.
@@ -47,7 +48,19 @@
 ;;    you will be prompted to select which preset to use.
 ;;    "eglot default" uses the standard eglot-server-programs configuration.
 ;;
-;; 3. To add custom presets:
+;; 3. After selecting a preset, you will be asked whether to save it
+;;    to `.dir-locals.el'.  If saved, the preset will be automatically
+;;    used next time without prompting.
+;;
+;; 4. To force preset selection when a saved config exists:
+;;
+;;    C-u M-x eglot
+;;
+;; 5. To customize where `.dir-locals.el' is saved:
+;;
+;;    (setq eglot-multi-preset-dir-locals-directory "/path/to/dir")
+;;
+;; 6. To add custom presets:
 ;;
 ;;    (eglot-multi-preset-register 'vue-mode "rass: vue + tailwind"
 ;;      '("rass" "--" "vue-language-server" "--stdio"
@@ -73,7 +86,9 @@
      . (("rass: ty + ruff" . ("rass" "python"))))
     ;; TypeScript/JavaScript: rass presets for multi-server configurations
     ((typescript-mode typescript-ts-mode tsx-ts-mode js-mode js-ts-mode)
-     . (("rass: ts-ls + eslint" . ("rass" "ts"))
+     . (("rass: ts-ls + eslint"
+         . ("rass" "--" "typescript-language-server" "--stdio"
+            "--" "vscode-eslint-language-server" "--stdio"))
         ("rass: ts-ls + eslint + tailwind"
          . ("rass" "--" "typescript-language-server" "--stdio"
             "--" "vscode-eslint-language-server" "--stdio"
@@ -105,7 +120,89 @@ The default value includes:
   :type 'string
   :group 'eglot-multi-preset)
 
+(defcustom eglot-multi-preset-dir-locals-directory nil
+  "Directory where `.dir-locals.el' should be saved.
+If nil, uses the project root directory.
+If set to a path, uses that directory instead."
+  :type '(choice (const :tag "Project root" nil)
+                 (directory :tag "Custom directory"))
+  :group 'eglot-multi-preset)
+
 ;;; Internal functions
+
+(defun eglot-multi-preset--get-dir-locals-directory ()
+  "Get the directory for `.dir-locals.el' operations.
+Returns `eglot-multi-preset-dir-locals-directory' if set,
+otherwise returns the project root directory."
+  (or eglot-multi-preset-dir-locals-directory
+      (when-let ((project (project-current)))
+        (project-root project))
+      default-directory))
+
+(defun eglot-multi-preset--dir-locals-file ()
+  "Get the path to `.dir-locals.el' for the current context."
+  (expand-file-name ".dir-locals.el"
+                    (eglot-multi-preset--get-dir-locals-directory)))
+
+(defun eglot-multi-preset--dir-locals-has-eglot-config-p ()
+  "Check if `.dir-locals.el' has `eglot-server-programs' for current mode.
+Returns the eglot-server-programs value if found, nil otherwise."
+  (let* ((dir-locals-file (eglot-multi-preset--dir-locals-file))
+         (dir-locals-dir (file-name-directory dir-locals-file)))
+    (when (file-exists-p dir-locals-file)
+      (let ((dir-locals-content
+             (with-temp-buffer
+               (insert-file-contents dir-locals-file)
+               (goto-char (point-min))
+               (condition-case nil
+                   (read (current-buffer))
+                 (error nil)))))
+        ;; Look for eglot-server-programs in dir-locals
+        (when dir-locals-content
+          (let ((mode-entry (or (assq major-mode dir-locals-content)
+                                (assq nil dir-locals-content))))
+            (when mode-entry
+              (cdr (assq 'eglot-server-programs (cdr mode-entry))))))))))
+
+(defun eglot-multi-preset--save-to-dir-locals (contact dir mode)
+  "Save CONTACT as `eglot-server-programs' to `.dir-locals.el'.
+CONTACT is the server contact specification to save.
+DIR is the directory where `.dir-locals.el' will be saved.
+MODE is the major mode to associate with the configuration."
+  (let* ((dir-locals-file (expand-file-name ".dir-locals.el" dir))
+         (server-entry (list (cons (list mode) contact))))
+    ;; Ensure directory exists
+    (unless (file-exists-p dir)
+      (make-directory dir t))
+    ;; Use add-dir-local-variable approach by manipulating the file directly
+    (with-current-buffer (find-file-noselect dir-locals-file)
+      (goto-char (point-min))
+      (let ((content (condition-case nil
+                         (read (current-buffer))
+                       (error nil))))
+        ;; Find or create mode entry
+        (let ((mode-entry (assq mode content)))
+          (if mode-entry
+              ;; Update existing mode entry
+              (let ((var-entry (assq 'eglot-server-programs (cdr mode-entry))))
+                (if var-entry
+                    (setcdr var-entry server-entry)
+                  (setcdr mode-entry
+                          (cons (cons 'eglot-server-programs server-entry)
+                                (cdr mode-entry)))))
+            ;; Add new mode entry
+            (setq content
+                  (cons (cons mode
+                              (list (cons 'eglot-server-programs server-entry)))
+                        content))))
+        ;; Write back
+        (erase-buffer)
+        (insert ";;; Directory Local Variables -*- no-byte-compile: t -*-\n")
+        (insert ";;; For more information see (info \"(emacs) Directory Variables\")\n\n")
+        (pp content (current-buffer))
+        (save-buffer)
+        (kill-buffer)))
+    (message "Saved eglot preset to %s" dir-locals-file)))
 
 (defun eglot-multi-preset--normalize-modes (mode-spec)
   "Normalize MODE-SPEC to a list of mode symbols.
@@ -160,23 +257,47 @@ Used to prevent recursive advice calls.")
 (defun eglot-multi-preset--maybe-select-preset (orig-fun &rest args)
   "Advice for `eglot' to prompt for preset selection.
 If presets are registered for the current mode and no server is
-running, show selection UI.  Otherwise, call ORIG-FUN with ARGS as-is."
-  (let ((presets (eglot-multi-preset--lookup-mode-presets major-mode)))
-    (if (and presets
-             (not (eglot-current-server))
-             (not eglot-multi-preset--in-progress))
-        ;; Presets exist and no server running - show selection
-        (let* ((candidates (eglot-multi-preset--build-candidates major-mode))
-               (selected (completing-read "LSP preset: " candidates nil t)))
-          (if (string= selected eglot-multi-preset-default-label)
-              ;; "eglot default" selected - use standard eglot
-              (apply orig-fun args)
-            ;; Custom preset selected - set flag to prevent recursion
-            (let ((eglot-multi-preset--in-progress t)
-                  (contact (eglot-multi-preset--get-contact selected major-mode)))
-              (eglot major-mode (project-current t) contact))))
-      ;; No presets or server already running - normal behavior
-      (apply orig-fun args))))
+running, show selection UI.  Otherwise, call ORIG-FUN with ARGS as-is.
+With prefix argument, force preset selection even if dir-locals exists."
+  (let ((presets (eglot-multi-preset--lookup-mode-presets major-mode))
+        (existing-config (eglot-multi-preset--dir-locals-has-eglot-config-p))
+        (force-selection current-prefix-arg))
+    (cond
+     ;; Already in progress or server running - normal behavior
+     ((or eglot-multi-preset--in-progress (eglot-current-server))
+      (apply orig-fun args))
+     ;; No presets registered - normal behavior
+     ((not presets)
+      (apply orig-fun args))
+     ;; Dir-locals config exists and not forcing - use it
+     ((and existing-config (not force-selection))
+      (let ((eglot-server-programs
+             (append existing-config eglot-server-programs)))
+        (apply orig-fun args)))
+     ;; Show preset selection
+     (t
+      (let* ((candidates (eglot-multi-preset--build-candidates major-mode))
+             (selected (completing-read "LSP preset: " candidates nil t)))
+        (if (string= selected eglot-multi-preset-default-label)
+            ;; "eglot default" selected - use standard eglot
+            (apply orig-fun args)
+          ;; Custom preset selected
+          (let* ((eglot-multi-preset--in-progress t)
+                 (contact (eglot-multi-preset--get-contact selected major-mode))
+                 (eglot-server-programs
+                  (cons (cons (list major-mode) contact)
+                        eglot-server-programs)))
+            ;; Ask to save if not already in dir-locals or different from saved
+            (when (and contact
+                       (or (not existing-config)
+                           force-selection)
+                       (y-or-n-p "Save this preset to .dir-locals.el? "))
+              (let ((save-dir (read-directory-name
+                               "Save .dir-locals.el to: "
+                               (eglot-multi-preset--get-dir-locals-directory)
+                               nil t)))
+                (eglot-multi-preset--save-to-dir-locals contact save-dir major-mode)))
+            (apply orig-fun args))))))))
 
 ;;;###autoload
 (define-minor-mode eglot-multi-preset-mode
