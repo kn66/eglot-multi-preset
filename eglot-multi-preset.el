@@ -98,6 +98,20 @@ unless NAME already ends with `.cmd' or `.exe'."
       (concat name ".cmd")
     name))
 
+(defconst eglot-multi-preset--eslint-workspace-config
+  '(:eslint (:validate "probe"
+             :packageManager "npm"
+             :run "onType"
+             :format :json-false
+             :codeAction (:disableRuleComment (:enable t
+                                               :location "separateLine")
+                          :showDocumentation (:enable t))
+             :codeActionOnSave (:enable :json-false
+                                :mode "all")))
+  "Default workspace configuration for ESLint language server.
+This configuration is required for vscode-eslint-language-server
+to provide diagnostics via Flymake.")
+
 (defun eglot-multi-preset--make-default-alist ()
   "Generate the default preset alist with platform-appropriate executable names."
   (let ((rass (eglot-multi-preset--executable-name "rass"))
@@ -110,12 +124,14 @@ unless NAME already ends with `.cmd' or `.exe'."
       ;; TypeScript/JavaScript: rass presets for multi-server configurations
       ((typescript-mode typescript-ts-mode tsx-ts-mode js-mode js-ts-mode)
        . (("rass: ts-ls + eslint"
-           . (,rass "--" ,ts-ls "--stdio"
-              "--" ,eslint "--stdio"))
+           . (:contact (,rass "--" ,ts-ls "--stdio"
+                        "--" ,eslint "--stdio")
+              :workspace-config ,eglot-multi-preset--eslint-workspace-config))
           ("rass: ts-ls + eslint + tailwind"
-           . (,rass "--" ,ts-ls "--stdio"
-              "--" ,eslint "--stdio"
-              "--" ,tailwind "--stdio")))))))
+           . (:contact (,rass "--" ,ts-ls "--stdio"
+                        "--" ,eslint "--stdio"
+                        "--" ,tailwind "--stdio")
+              :workspace-config ,eglot-multi-preset--eslint-workspace-config)))))))
 
 ;;; Core data structure
 
@@ -182,28 +198,42 @@ otherwise returns the project root directory."
   (expand-file-name ".dir-locals.el"
                     (eglot-multi-preset--get-dir-locals-directory)))
 
+(defun eglot-multi-preset--read-dir-locals ()
+  "Read and parse `.dir-locals.el' content.
+Returns the parsed alist, or nil if file doesn't exist or can't be parsed."
+  (let ((dir-locals-file (eglot-multi-preset--dir-locals-file)))
+    (when (file-exists-p dir-locals-file)
+      (with-temp-buffer
+        (insert-file-contents dir-locals-file)
+        (goto-char (point-min))
+        (condition-case nil
+            (read (current-buffer))
+          (error nil))))))
+
 (defun eglot-multi-preset--dir-locals-has-eglot-config-p ()
   "Check if `.dir-locals.el' has `eglot-server-programs' for current mode.
 Returns the eglot-server-programs value if found, nil otherwise."
-  (let ((dir-locals-file (eglot-multi-preset--dir-locals-file)))
-    (when (file-exists-p dir-locals-file)
-      (let ((dir-locals-content
-             (with-temp-buffer
-               (insert-file-contents dir-locals-file)
-               (goto-char (point-min))
-               (condition-case nil
-                   (read (current-buffer))
-                 (error nil)))))
-        ;; Look for eglot-server-programs in dir-locals
-        (when dir-locals-content
-          (let ((mode-entry (or (assq major-mode dir-locals-content)
-                                (assq nil dir-locals-content))))
-            (when mode-entry
-              (cdr (assq 'eglot-server-programs (cdr mode-entry))))))))))
+  (let ((dir-locals-content (eglot-multi-preset--read-dir-locals)))
+    (when dir-locals-content
+      (let ((mode-entry (or (assq major-mode dir-locals-content)
+                            (assq nil dir-locals-content))))
+        (when mode-entry
+          (cdr (assq 'eglot-server-programs (cdr mode-entry))))))))
 
-(defun eglot-multi-preset--save-to-dir-locals (contact dir mode)
-  "Save CONTACT as `eglot-server-programs' to `.dir-locals.el'.
+(defun eglot-multi-preset--dir-locals-get-workspace-config ()
+  "Get `eglot-workspace-configuration' from `.dir-locals.el' for current mode.
+Returns the workspace configuration plist if found, nil otherwise."
+  (let ((dir-locals-content (eglot-multi-preset--read-dir-locals)))
+    (when dir-locals-content
+      (let ((mode-entry (or (assq major-mode dir-locals-content)
+                            (assq nil dir-locals-content))))
+        (when mode-entry
+          (cdr (assq 'eglot-workspace-configuration (cdr mode-entry))))))))
+
+(defun eglot-multi-preset--save-to-dir-locals (contact workspace-config dir mode)
+  "Save CONTACT and WORKSPACE-CONFIG to `.dir-locals.el'.
 CONTACT is the server contact specification to save.
+WORKSPACE-CONFIG is the eglot-workspace-configuration plist (can be nil).
 DIR is the directory where `.dir-locals.el' will be saved.
 MODE is the major mode to associate with the configuration."
   (condition-case err
@@ -222,17 +252,27 @@ MODE is the major mode to associate with the configuration."
             (let ((mode-entry (assq mode content)))
               (if mode-entry
                   ;; Update existing mode entry
-                  (let ((var-entry (assq 'eglot-server-programs (cdr mode-entry))))
-                    (if var-entry
-                        (setcdr var-entry server-entry)
-                      (setcdr mode-entry
-                              (cons (cons 'eglot-server-programs server-entry)
-                                    (cdr mode-entry)))))
+                  (progn
+                    ;; Update eglot-server-programs
+                    (let ((var-entry (assq 'eglot-server-programs (cdr mode-entry))))
+                      (if var-entry
+                          (setcdr var-entry server-entry)
+                        (setcdr mode-entry
+                                (cons (cons 'eglot-server-programs server-entry)
+                                      (cdr mode-entry)))))
+                    ;; Update eglot-workspace-configuration if provided
+                    (when workspace-config
+                      (let ((ws-entry (assq 'eglot-workspace-configuration (cdr mode-entry))))
+                        (if ws-entry
+                            (setcdr ws-entry workspace-config)
+                          (setcdr mode-entry
+                                  (cons (cons 'eglot-workspace-configuration workspace-config)
+                                        (cdr mode-entry)))))))
                 ;; Add new mode entry
-                (setq content
-                      (cons (cons mode
-                                  (list (cons 'eglot-server-programs server-entry)))
-                            content))))
+                (let ((new-entry (list (cons 'eglot-server-programs server-entry))))
+                  (when workspace-config
+                    (push (cons 'eglot-workspace-configuration workspace-config) new-entry))
+                  (setq content (cons (cons mode new-entry) content)))))
             ;; Write back
             (erase-buffer)
             (insert ";;; Directory Local Variables -*- no-byte-compile: t -*-\n")
@@ -274,19 +314,47 @@ Also checks parent modes for inheritance."
           (throw 'found presets))))
     nil))
 
+(defun eglot-multi-preset--extended-format-p (preset-value)
+  "Check if PRESET-VALUE uses the extended plist format.
+Extended format has :contact key, legacy format is just a list."
+  (and (listp preset-value)
+       (plist-member preset-value :contact)))
+
 (defun eglot-multi-preset--get-contact (preset-name mode)
   "Get contact specification for PRESET-NAME in MODE.
 Returns the contact list for the preset, or nil if PRESET-NAME
-is the default label (`eglot-multi-preset-default-label')."
+is the default label (`eglot-multi-preset-default-label').
+Supports both legacy format (PROGRAM ARGS...) and extended format
+(:contact (PROGRAM ARGS...) :workspace-config ...)."
   (unless (string= preset-name eglot-multi-preset-default-label)
-    (let ((presets (eglot-multi-preset--lookup-mode-presets mode)))
-      (cdr (assoc preset-name presets)))))
+    (let* ((presets (eglot-multi-preset--lookup-mode-presets mode))
+           (preset-value (cdr (assoc preset-name presets))))
+      (if (eglot-multi-preset--extended-format-p preset-value)
+          (plist-get preset-value :contact)
+        preset-value))))
+
+(defun eglot-multi-preset--get-workspace-config (preset-name mode)
+  "Get workspace configuration for PRESET-NAME in MODE.
+Returns the workspace-config plist for the preset, or nil if not defined.
+Only extended format presets can have workspace configuration."
+  (unless (string= preset-name eglot-multi-preset-default-label)
+    (let* ((presets (eglot-multi-preset--lookup-mode-presets mode))
+           (preset-value (cdr (assoc preset-name presets))))
+      (when (eglot-multi-preset--extended-format-p preset-value)
+        (plist-get preset-value :workspace-config)))))
 
 (defun eglot-multi-preset--build-candidates (mode)
   "Build completion candidates for MODE.
 Returns list starting with the default label followed by mode-specific presets."
   (let ((presets (eglot-multi-preset--lookup-mode-presets mode)))
     (cons eglot-multi-preset-default-label (mapcar #'car presets))))
+
+(defun eglot-multi-preset--apply-workspace-config (workspace-config)
+  "Apply WORKSPACE-CONFIG to current buffer's eglot-workspace-configuration.
+WORKSPACE-CONFIG is a plist like (:eslint (:validate \"probe\" ...)).
+This sets `eglot-workspace-configuration' buffer-locally."
+  (when workspace-config
+    (setq-local eglot-workspace-configuration workspace-config)))
 
 ;;; Eglot integration (advice)
 
@@ -312,6 +380,9 @@ With prefix argument, force preset selection even if dir-locals exists."
      ;; Dir-locals config exists and not forcing - use it
      ((and existing-config (not force-selection))
       (message "Using eglot preset from .dir-locals.el")
+      ;; Apply workspace-config from dir-locals if present
+      (let ((workspace-config (eglot-multi-preset--dir-locals-get-workspace-config)))
+        (eglot-multi-preset--apply-workspace-config workspace-config))
       (let ((eglot-server-programs
              (append existing-config eglot-server-programs)))
         (apply orig-fun args)))
@@ -325,9 +396,12 @@ With prefix argument, force preset selection even if dir-locals exists."
           ;; Custom preset selected
           (let* ((eglot-multi-preset--in-progress t)
                  (contact (eglot-multi-preset--get-contact selected major-mode))
+                 (workspace-config (eglot-multi-preset--get-workspace-config selected major-mode))
                  (eglot-server-programs
                   (cons (cons (list major-mode) contact)
                         eglot-server-programs)))
+            ;; Apply workspace configuration buffer-locally
+            (eglot-multi-preset--apply-workspace-config workspace-config)
             ;; Save based on eglot-multi-preset-auto-save setting
             (when (and contact
                        (or (not existing-config) force-selection)
@@ -338,7 +412,7 @@ With prefix argument, force preset selection even if dir-locals exists."
                                "Save .dir-locals.el to: "
                                (eglot-multi-preset--get-dir-locals-directory)
                                nil t)))
-                (eglot-multi-preset--save-to-dir-locals contact save-dir major-mode)))
+                (eglot-multi-preset--save-to-dir-locals contact workspace-config save-dir major-mode)))
             (apply orig-fun args))))))))
 
 ;;;###autoload
