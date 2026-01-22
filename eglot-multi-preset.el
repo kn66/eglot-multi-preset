@@ -99,15 +99,16 @@ unless NAME already ends with `.cmd' or `.exe'."
     name))
 
 (defconst eglot-multi-preset--eslint-workspace-config
-  '(:eslint (:validate "probe"
-             :packageManager "npm"
-             :run "onType"
-             :format :json-false
-             :codeAction (:disableRuleComment (:enable t
-                                               :location "separateLine")
-                          :showDocumentation (:enable t))
-             :codeActionOnSave (:enable :json-false
-                                :mode "all")))
+  '(:eslint ( :validate "probe"
+              :packageManager "npm"
+              :run "onType"
+              :format :json-false
+              :codeAction ( :disableRuleComment ( :enable t
+                                                  :location "separateLine")
+                            :showDocumentation (:enable t))
+              :codeActionOnSave ( :enable
+                                  :json-false
+                                  :mode "all")))
   "Default workspace configuration for ESLint language server.
 This configuration is required for vscode-eslint-language-server
 to provide diagnostics via Flymake.")
@@ -124,14 +125,14 @@ to provide diagnostics via Flymake.")
       ;; TypeScript/JavaScript: rass presets for multi-server configurations
       ((typescript-mode typescript-ts-mode tsx-ts-mode js-mode js-ts-mode)
        . (("rass: ts-ls + eslint"
-           . (:contact (,rass "--" ,ts-ls "--stdio"
-                        "--" ,eslint "--stdio")
-              :workspace-config ,eglot-multi-preset--eslint-workspace-config))
+           . ( :contact (,rass "--" ,ts-ls "--stdio"
+                               "--" ,eslint "--stdio")
+               :workspace-config ,eglot-multi-preset--eslint-workspace-config))
           ("rass: ts-ls + eslint + tailwind"
-           . (:contact (,rass "--" ,ts-ls "--stdio"
-                        "--" ,eslint "--stdio"
-                        "--" ,tailwind "--stdio")
-              :workspace-config ,eglot-multi-preset--eslint-workspace-config)))))))
+           . ( :contact (,rass "--" ,ts-ls "--stdio"
+                               "--" ,eslint "--stdio"
+                               "--" ,tailwind "--stdio")
+               :workspace-config ,eglot-multi-preset--eslint-workspace-config)))))))
 
 ;;; Core data structure
 
@@ -181,6 +182,29 @@ If set to a path, uses that directory instead."
                  (const :tag "Always save" always)
                  (const :tag "Never save" never))
   :group 'eglot-multi-preset)
+
+;;; Project workspace configuration storage
+
+(defvar eglot-multi-preset--project-workspace-configs (make-hash-table :test 'equal)
+  "Hash table mapping project roots to workspace configurations.
+Used to provide workspace configuration to eglot without requiring
+.dir-locals.el to be saved first.")
+
+(defun eglot-multi-preset--workspace-configuration-function (server)
+  "Return workspace configuration for SERVER.
+First checks the preset-specific config stored in
+`eglot-multi-preset--project-workspace-configs', then falls back
+to reading from .dir-locals.el."
+  (let* ((project-root (project-root (eglot--project server)))
+         (preset-config (gethash project-root
+                                 eglot-multi-preset--project-workspace-configs)))
+    (or preset-config
+        ;; Fallback: read from dir-locals (existing behavior)
+        (with-temp-buffer
+          (setq default-directory project-root)
+          (setq major-mode (car (eglot--major-modes server)))
+          (hack-dir-local-variables-non-file-buffer)
+          eglot-workspace-configuration))))
 
 ;;; Internal functions
 
@@ -350,11 +374,16 @@ Returns list starting with the default label followed by mode-specific presets."
     (cons eglot-multi-preset-default-label (mapcar #'car presets))))
 
 (defun eglot-multi-preset--apply-workspace-config (workspace-config)
-  "Apply WORKSPACE-CONFIG to current buffer's eglot-workspace-configuration.
+  "Apply WORKSPACE-CONFIG for the current project.
 WORKSPACE-CONFIG is a plist like (:eslint (:validate \"probe\" ...)).
-This sets `eglot-workspace-configuration' buffer-locally."
+This stores the configuration in `eglot-multi-preset--project-workspace-configs'
+using the project root as key, so it can be retrieved by the
+workspace-configuration function when eglot requests it."
   (when workspace-config
-    (setq-local eglot-workspace-configuration workspace-config)))
+    (when-let ((project (project-current)))
+      (let ((project-root (project-root project)))
+        (puthash project-root workspace-config
+                 eglot-multi-preset--project-workspace-configs)))))
 
 ;;; Eglot integration (advice)
 
@@ -415,6 +444,9 @@ With prefix argument, force preset selection even if dir-locals exists."
                 (eglot-multi-preset--save-to-dir-locals contact workspace-config save-dir major-mode)))
             (apply orig-fun args))))))))
 
+(defvar eglot-multi-preset--saved-workspace-configuration nil
+  "Saved value of `eglot-workspace-configuration' default before mode activation.")
+
 ;;;###autoload
 (define-minor-mode eglot-multi-preset-mode
   "Global minor mode to enable preset selection on eglot startup.
@@ -426,7 +458,17 @@ The first option is always \"eglot default\" which uses the standard
   :group 'eglot-multi-preset
   :lighter " EgMP"
   (if eglot-multi-preset-mode
-      (advice-add 'eglot :around #'eglot-multi-preset--maybe-select-preset)
+      (progn
+        ;; Save current default and set our lookup function
+        (setq eglot-multi-preset--saved-workspace-configuration
+              (default-value 'eglot-workspace-configuration))
+        (setq-default eglot-workspace-configuration
+                      #'eglot-multi-preset--workspace-configuration-function)
+        (advice-add 'eglot :around #'eglot-multi-preset--maybe-select-preset))
+    ;; Restore original default and remove advice
+    (setq-default eglot-workspace-configuration
+                  eglot-multi-preset--saved-workspace-configuration)
+    (clrhash eglot-multi-preset--project-workspace-configs)
     (advice-remove 'eglot #'eglot-multi-preset--maybe-select-preset)))
 
 ;;; Programmatic API
