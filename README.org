@@ -124,9 +124,10 @@ The package includes these default presets:
 
 ** Python
 
-| Preset          | Servers                                 |
-|-----------------+-----------------------------------------|
-| rass: ty + ruff | ty (type checker) + ruff (linter/formatter) |
+| Preset               | Servers                                 |
+|----------------------+-----------------------------------------|
+| rass: ty + ruff      | ty (type checker) + ruff (linter/formatter) |
+| rass: pyright + ruff | pyright-langserver + ruff server        |
 
 ** TypeScript/JavaScript
 

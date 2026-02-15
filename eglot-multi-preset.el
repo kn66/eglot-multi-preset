@@ -39,7 +39,7 @@
 ;; Single-server setups should use `eglot-server-programs' directly.
 ;;
 ;; Default presets included:
-;;   - Python: "rass: ty + ruff" (type checking + linting/formatting)
+;;   - Python: "rass: ty + ruff" and "rass: pyright + ruff"
 ;;   - TypeScript/JS: "rass: ts-ls + eslint" and "rass: ts-ls + eslint + tailwind"
 ;;
 ;; Usage:
@@ -109,12 +109,16 @@ Uses a minimal setting to enable diagnostics via Flymake.")
 (defun eglot-multi-preset--make-default-alist ()
   "Generate the default preset alist with platform-appropriate executable names."
   (let ((rass (eglot-multi-preset--executable-name "rass"))
+        (pyright (eglot-multi-preset--executable-name "pyright-langserver"))
         (ts-ls (eglot-multi-preset--executable-name "typescript-language-server"))
         (eslint (eglot-multi-preset--executable-name "vscode-eslint-language-server"))
         (tailwind (eglot-multi-preset--executable-name "tailwindcss-language-server")))
     `(;; Python: rass preset combining ty (type checker) + ruff (linter/formatter)
       ((python-mode python-ts-mode)
-       . (("rass: ty + ruff" . (,rass "python"))))
+       . (("rass: ty + ruff" . (,rass "python"))
+          ("rass: pyright + ruff"
+           . (,rass "--" ,pyright "--stdio"
+                    "--" "ruff" "server"))))
       ;; TypeScript/JavaScript: rass presets for multi-server configurations
       ((typescript-mode typescript-ts-mode tsx-ts-mode js-mode js-ts-mode)
        . (("rass: ts-ls + eslint"
@@ -147,7 +151,7 @@ directly.  This package is for multi-server configurations using
 LSP multiplexers like rass (rassumfrassum).
 
 The default value includes:
-  - Python: rass preset with ty + ruff
+  - Python: rass presets with ty + ruff, and pyright + ruff
   - TypeScript/JS: rass presets with ts-ls + eslint, and ts-ls + eslint + tailwind"
   :type '(alist :key-type (choice symbol (repeat symbol))
                 :value-type (alist :key-type string :value-type sexp))
