@@ -222,6 +222,14 @@ otherwise returns the project root directory."
   (expand-file-name ".dir-locals.el"
                     (eglot-multi-preset--get-dir-locals-directory)))
 
+(defun eglot-multi-preset--choose-save-directory ()
+  "Choose target directory for saving `.dir-locals.el'."
+  (if eglot-multi-preset-dir-locals-directory
+      (expand-file-name eglot-multi-preset-dir-locals-directory)
+    (read-directory-name "Save .dir-locals.el to: "
+                         (eglot-multi-preset--get-dir-locals-directory)
+                         nil t)))
+
 (defun eglot-multi-preset--read-dir-locals ()
   "Read and parse `.dir-locals.el' content.
 Returns the parsed alist, or nil if file doesn't exist or can't be parsed."
@@ -458,10 +466,7 @@ With prefix argument, force preset selection even if dir-locals exists."
                        (not (eq eglot-multi-preset-auto-save 'never))
                        (or (eq eglot-multi-preset-auto-save 'always)
                            (y-or-n-p "Save this preset to .dir-locals.el? ")))
-              (let ((save-dir (read-directory-name
-                               "Save .dir-locals.el to: "
-                               (eglot-multi-preset--get-dir-locals-directory)
-                               nil t)))
+              (let ((save-dir (eglot-multi-preset--choose-save-directory)))
                 (eglot-multi-preset--save-to-dir-locals contact workspace-config save-dir major-mode)))
             (apply orig-fun args))))))))
 
