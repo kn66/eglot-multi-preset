@@ -245,6 +245,7 @@ Returns the parsed alist, or nil if file doesn't exist or can't be parsed."
 (defun eglot-multi-preset--safe-read (buffer)
   "Read one Lisp form from BUFFER with read-time evaluation disabled."
   (let ((read-eval nil))
+    (declare (special read-eval))
     (read buffer)))
 
 (defun eglot-multi-preset--dir-locals-has-eglot-config-p ()
