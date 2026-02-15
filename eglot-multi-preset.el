@@ -439,12 +439,18 @@ With prefix argument, force preset selection even if dir-locals exists."
      ;; Dir-locals config exists and not forcing - use it
      ((and existing-config (not force-selection))
       (message "Using eglot preset from .dir-locals.el")
-      ;; Apply workspace-config from dir-locals if present
-      (let ((workspace-config (eglot-multi-preset--dir-locals-get-workspace-config)))
-        (eglot-multi-preset--apply-workspace-config workspace-config))
-      (let ((eglot-server-programs
-             (append existing-config eglot-server-programs)))
-        (apply orig-fun args)))
+      ;; If `.dir-locals.el' is in the project root, Eglot already sees local
+      ;; variables.  Avoid re-injecting `eglot-server-programs' via dynamic
+      ;; binding, which can conflict with the contact selected by Eglot's
+      ;; interactive spec.
+      (if eglot-multi-preset-dir-locals-directory
+          (let ((workspace-config (eglot-multi-preset--dir-locals-get-workspace-config))
+                (eglot-server-programs (append existing-config eglot-server-programs)))
+            (eglot-multi-preset--apply-workspace-config workspace-config)
+            (apply orig-fun args))
+        (progn
+          (eglot-multi-preset--apply-workspace-config eglot-workspace-configuration)
+          (apply orig-fun args))))
      ;; Show preset selection
      (t
       (let* ((candidates (eglot-multi-preset--build-candidates major-mode))
@@ -550,32 +556,32 @@ This allows you to reset the saved preset and be prompted again."
         (message "No .dir-locals.el found at %s" dir-locals-file)
       (let ((existing-buffer (get-file-buffer dir-locals-file)))
         (with-current-buffer (find-file-noselect dir-locals-file)
-        (goto-char (point-min))
-        (let ((content (condition-case nil
-                           (eglot-multi-preset--safe-read (current-buffer))
-                         (error nil))))
-          (when content
-            (let ((mode-entry (assq major-mode content)))
-              (if (not mode-entry)
-                  (message "No eglot preset found for %s in .dir-locals.el" major-mode)
-                ;; Remove eglot-server-programs from mode entry
-                (setcdr mode-entry
-                        (assq-delete-all 'eglot-server-programs (cdr mode-entry)))
-                ;; Remove mode entry if empty
-                (unless (cdr mode-entry)
-                  (setq content (assq-delete-all major-mode content)))
-                ;; Write back
-                (erase-buffer)
-                (if content
-                    (progn
-                      (insert ";;; Directory Local Variables -*- no-byte-compile: t -*-\n")
-                      (insert ";;; For more information see (info \"(emacs) Directory Variables\")\n\n")
-                      (pp content (current-buffer)))
-                  (insert ";;; Directory Local Variables -*- no-byte-compile: t -*-\n")
-                  (insert ";;; For more information see (info \"(emacs) Directory Variables\")\n\n")
-                  (insert "()\n"))
-                (save-buffer)
-                (message "Cleared eglot preset for %s from %s" major-mode dir-locals-file)))))
+          (goto-char (point-min))
+          (let ((content (condition-case nil
+                             (eglot-multi-preset--safe-read (current-buffer))
+                           (error nil))))
+            (when content
+              (let ((mode-entry (assq major-mode content)))
+                (if (not mode-entry)
+                    (message "No eglot preset found for %s in .dir-locals.el" major-mode)
+                  ;; Remove eglot-server-programs from mode entry
+                  (setcdr mode-entry
+                          (assq-delete-all 'eglot-server-programs (cdr mode-entry)))
+                  ;; Remove mode entry if empty
+                  (unless (cdr mode-entry)
+                    (setq content (assq-delete-all major-mode content)))
+                  ;; Write back
+                  (erase-buffer)
+                  (if content
+                      (progn
+                        (insert ";;; Directory Local Variables -*- no-byte-compile: t -*-\n")
+                        (insert ";;; For more information see (info \"(emacs) Directory Variables\")\n\n")
+                        (pp content (current-buffer)))
+                    (insert ";;; Directory Local Variables -*- no-byte-compile: t -*-\n")
+                    (insert ";;; For more information see (info \"(emacs) Directory Variables\")\n\n")
+                    (insert "()\n"))
+                  (save-buffer)
+                  (message "Cleared eglot preset for %s from %s" major-mode dir-locals-file)))))
           (unless existing-buffer
             (kill-buffer (get-file-buffer dir-locals-file))))))))
 
