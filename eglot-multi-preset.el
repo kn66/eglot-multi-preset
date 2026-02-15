@@ -373,6 +373,28 @@ Extended format has :contact key, legacy format is just a list."
   (and (listp preset-value)
        (plist-member preset-value :contact)))
 
+(defun eglot-multi-preset--contact-executables (contact)
+  "Extract executable names from CONTACT when it is a command list.
+Supports multiplexed commands like:
+  (\"rass\" \"--\" \"typescript-language-server\" \"--stdio\" ...)."
+  (when (and (listp contact) (stringp (car contact)))
+    (let ((executables (list (car contact)))
+          (rest (cdr contact)))
+      (while rest
+        (let ((token (car rest))
+              (next (cadr rest)))
+          (when (and (string= token "--")
+                     (stringp next)
+                     (not (string-prefix-p "-" next)))
+            (push next executables))
+          (setq rest (cdr rest))))
+      (delete-dups (nreverse executables)))))
+
+(defun eglot-multi-preset--missing-executables (contact)
+  "Return missing executable names in CONTACT."
+  (cl-remove-if #'executable-find
+                (eglot-multi-preset--contact-executables contact)))
+
 (defun eglot-multi-preset--get-contact (preset-name mode)
   "Get contact specification for PRESET-NAME in MODE.
 Returns the contact list for the preset, or nil if PRESET-NAME
@@ -445,9 +467,13 @@ With prefix argument, force preset selection even if dir-locals exists."
       (if eglot-multi-preset-dir-locals-directory
           (let ((workspace-config (eglot-multi-preset--dir-locals-get-workspace-config))
                 (eglot-server-programs (append existing-config eglot-server-programs)))
+            (when-let ((missing (eglot-multi-preset--missing-executables (nth 3 args))))
+              (user-error "Missing LSP executables: %s" (mapconcat #'identity missing ", ")))
             (eglot-multi-preset--apply-workspace-config workspace-config)
             (apply orig-fun args))
         (progn
+          (when-let ((missing (eglot-multi-preset--missing-executables (nth 3 args))))
+            (user-error "Missing LSP executables: %s" (mapconcat #'identity missing ", ")))
           (eglot-multi-preset--apply-workspace-config nil)
           (apply orig-fun args))))
      ;; Show preset selection
@@ -466,6 +492,8 @@ With prefix argument, force preset selection even if dir-locals exists."
                  (eglot-server-programs
                   (cons (cons (list major-mode) contact)
                         eglot-server-programs)))
+            (when-let ((missing (eglot-multi-preset--missing-executables contact)))
+              (user-error "Missing LSP executables: %s" (mapconcat #'identity missing ", ")))
             ;; Apply workspace configuration buffer-locally
             (eglot-multi-preset--apply-workspace-config workspace-config)
             ;; Save based on eglot-multi-preset-auto-save setting
