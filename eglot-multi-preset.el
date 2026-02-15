@@ -231,8 +231,13 @@ Returns the parsed alist, or nil if file doesn't exist or can't be parsed."
         (insert-file-contents dir-locals-file)
         (goto-char (point-min))
         (condition-case nil
-            (read (current-buffer))
+            (eglot-multi-preset--safe-read (current-buffer))
           (error nil))))))
+
+(defun eglot-multi-preset--safe-read (buffer)
+  "Read one Lisp form from BUFFER with read-time evaluation disabled."
+  (let ((read-eval nil))
+    (read buffer)))
 
 (defun eglot-multi-preset--dir-locals-has-eglot-config-p ()
   "Check if `.dir-locals.el' has `eglot-server-programs' for current mode.
@@ -270,7 +275,7 @@ MODE is the major mode to associate with the configuration."
         (with-current-buffer (find-file-noselect dir-locals-file)
           (goto-char (point-min))
           (let ((content (condition-case nil
-                             (read (current-buffer))
+                             (eglot-multi-preset--safe-read (current-buffer))
                            (error nil))))
             ;; Find or create mode entry
             (let ((mode-entry (assq mode content)))
@@ -518,7 +523,7 @@ This allows you to reset the saved preset and be prompted again."
       (with-current-buffer (find-file-noselect dir-locals-file)
         (goto-char (point-min))
         (let ((content (condition-case nil
-                           (read (current-buffer))
+                           (eglot-multi-preset--safe-read (current-buffer))
                          (error nil))))
           (when content
             (let ((mode-entry (assq major-mode content)))
