@@ -32,15 +32,15 @@
 
 ;; eglot-multi-preset provides a mechanism for selecting LSP server presets
 ;; when starting eglot.  This is particularly useful when working with
-;; LSP multiplexers like rassumfrassum (rass) where different projects
-;; may require different server combinations.
+;; LSP multiplexers like rassumfrassum (rass) or lspx where different
+;; projects may require different server combinations.
 ;;
 ;; This package is designed for MULTI-SERVER configurations only.
 ;; Single-server setups should use `eglot-server-programs' directly.
 ;;
 ;; Default presets included:
-;;   - Python: "rass: ty + ruff" and "rass: pyright + ruff"
-;;   - TypeScript/JS: "rass: ts-ls + eslint" and "rass: ts-ls + eslint + tailwind"
+;;   - Python: "rass: ..." and "lspx: ..."
+;;   - TypeScript/JS: "rass: ..." and "lspx: ..."
 ;;
 ;; Usage:
 ;;
@@ -109,17 +109,24 @@ Uses a minimal setting to enable diagnostics via Flymake.")
 (defun eglot-multi-preset--make-default-alist ()
   "Generate the default preset alist with platform-appropriate executable names."
   (let ((rass (eglot-multi-preset--executable-name "rass"))
+        (lspx (eglot-multi-preset--executable-name "lspx"))
         (pyright (eglot-multi-preset--executable-name "pyright-langserver"))
         (ts-ls (eglot-multi-preset--executable-name "typescript-language-server"))
         (eslint (eglot-multi-preset--executable-name "vscode-eslint-language-server"))
         (tailwind (eglot-multi-preset--executable-name "tailwindcss-language-server")))
-    `(;; Python: rass preset combining ty (type checker) + ruff (linter/formatter)
+    `(;; Python: rass/lspx presets combining type checker + ruff
       ((python-mode python-ts-mode)
        . (("rass: ty + ruff" . (,rass "python"))
           ("rass: pyright + ruff"
            . (,rass "--" ,pyright "--stdio"
-                    "--" "ruff" "server"))))
-      ;; TypeScript/JavaScript: rass presets for multi-server configurations
+                    "--" "ruff" "server"))
+          ("lspx: ty + ruff"
+           . (,lspx "--lsp" "ty server"
+                    "--lsp" "ruff server"))
+          ("lspx: pyright + ruff"
+           . (,lspx "--lsp" ,(format "%s --stdio" pyright)
+                    "--lsp" "ruff server"))))
+      ;; TypeScript/JavaScript: rass/lspx presets for multi-server configurations
       ((typescript-mode typescript-ts-mode tsx-ts-mode js-mode js-ts-mode)
        . (("rass: ts-ls + eslint"
            . ( :contact (,rass "--" ,ts-ls "--stdio"
@@ -129,6 +136,15 @@ Uses a minimal setting to enable diagnostics via Flymake.")
            . ( :contact (,rass "--" ,ts-ls "--stdio"
                                "--" ,eslint "--stdio"
                                "--" ,tailwind "--stdio")
+               :workspace-config ,eglot-multi-preset--eslint-workspace-config))
+          ("lspx: ts-ls + eslint"
+           . ( :contact (,lspx "--lsp" ,(format "%s --stdio" ts-ls)
+                               "--lsp" ,(format "%s --stdio" eslint))
+               :workspace-config ,eglot-multi-preset--eslint-workspace-config))
+          ("lspx: ts-ls + eslint + tailwind"
+           . ( :contact (,lspx "--lsp" ,(format "%s --stdio" ts-ls)
+                               "--lsp" ,(format "%s --stdio" eslint)
+                               "--lsp" ,(format "%s --stdio" tailwind))
                :workspace-config ,eglot-multi-preset--eslint-workspace-config)))))))
 
 ;;; Core data structure
@@ -148,11 +164,11 @@ PRESETS is a list of (PRESET-NAME . CONTACT) pairs where:
 
 Note: Single-server configurations should use `eglot-server-programs'
 directly.  This package is for multi-server configurations using
-LSP multiplexers like rass (rassumfrassum).
+LSP multiplexers like rass (rassumfrassum) and lspx.
 
 The default value includes:
-  - Python: rass presets with ty + ruff, and pyright + ruff
-  - TypeScript/JS: rass presets with ts-ls + eslint, and ts-ls + eslint + tailwind"
+  - Python: rass/lspx presets with ty + ruff, and pyright + ruff
+  - TypeScript/JS: rass/lspx presets with ts-ls + eslint, and ts-ls + eslint + tailwind"
   :type '(alist :key-type (choice symbol (repeat symbol))
                 :value-type (alist :key-type string :value-type sexp))
   :group 'eglot-multi-preset)
@@ -376,17 +392,27 @@ Extended format has :contact key, legacy format is just a list."
 (defun eglot-multi-preset--contact-executables (contact)
   "Extract executable names from CONTACT when it is a command list.
 Supports multiplexed commands like:
-  (\"rass\" \"--\" \"typescript-language-server\" \"--stdio\" ...)."
+  (\"rass\" \"--\" \"typescript-language-server\" \"--stdio\" ...)
+or
+  (\"lspx\" \"--lsp\" \"typescript-language-server --stdio\" ...)."
   (when (and (listp contact) (stringp (car contact)))
     (let ((executables (list (car contact)))
           (rest (cdr contact)))
       (while rest
         (let ((token (car rest))
               (next (cadr rest)))
-          (when (and (string= token "--")
-                     (stringp next)
-                     (not (string-prefix-p "-" next)))
+          (cond
+           ((and (string= token "--")
+                 (stringp next)
+                 (not (string-prefix-p "-" next)))
             (push next executables))
+           ((and (string= token "--lsp")
+                 (stringp next))
+            (when-let* ((parts (split-string-and-unquote next))
+                        (exe (car parts)))
+              (unless (or (string= exe "")
+                          (string-prefix-p "-" exe))
+                (push exe executables)))))
           (setq rest (cdr rest))))
       (delete-dups (nreverse executables)))))
 
