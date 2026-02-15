@@ -345,6 +345,17 @@ Also checks parent modes for inheritance."
           (throw 'found presets))))
     nil))
 
+(defun eglot-multi-preset--find-mode-entry (mode)
+  "Find the first preset entry matching MODE.
+MODE can be a symbol or mode list.  For symbols, this also matches
+grouped mode entries containing MODE."
+  (or (assoc mode eglot-multi-preset-alist)
+      (when (symbolp mode)
+        (cl-find-if (lambda (entry)
+                      (memq mode
+                            (eglot-multi-preset--normalize-modes (car entry))))
+                    eglot-multi-preset-alist))))
+
 (defun eglot-multi-preset--extended-format-p (preset-value)
   "Check if PRESET-VALUE uses the extended plist format.
 Extended format has :contact key, legacy format is just a list."
@@ -490,9 +501,12 @@ MODE is a major mode symbol.
 PRESET-NAME is a string identifying the preset.
 CONTACT is a list (PROGRAM ARGS...) for eglot.
 
+If MODE belongs to a grouped mode entry in
+`eglot-multi-preset-alist', that entry is updated.
+
 Example:
   (eglot-multi-preset-register \\='python-mode \"my-preset\" \\='(\"my-server\" \"--stdio\"))"
-  (let ((existing (assoc mode eglot-multi-preset-alist)))
+  (let ((existing (eglot-multi-preset--find-mode-entry mode)))
     (if existing
         ;; Mode already has presets - add or update
         (let ((presets (cdr existing)))
@@ -509,13 +523,14 @@ Example:
   "Unregister a preset from MODE.
 MODE is a major mode symbol.
 PRESET-NAME is the string identifying the preset to remove."
-  (let ((existing (assoc mode eglot-multi-preset-alist)))
+  (let ((existing (eglot-multi-preset--find-mode-entry mode)))
     (when existing
       (let ((presets (cdr existing)))
         (setcdr existing (assoc-delete-all preset-name presets))
         ;; Remove mode entry if no presets remain
         (unless (cdr existing)
-          (setq eglot-multi-preset-alist (assq-delete-all mode eglot-multi-preset-alist)))))))
+          (setq eglot-multi-preset-alist
+                (delete existing eglot-multi-preset-alist)))))))
 
 ;;;###autoload
 (defun eglot-multi-preset-clear-dir-locals ()
