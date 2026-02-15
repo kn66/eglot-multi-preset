@@ -386,11 +386,12 @@ WORKSPACE-CONFIG is a plist like (:eslint (:validate \"probe\" ...)).
 This stores the configuration in `eglot-multi-preset--project-workspace-configs'
 using the project root as key, so it can be retrieved by the
 workspace-configuration function when eglot requests it."
-  (when workspace-config
-    (when-let ((project (project-current)))
-      (let ((project-root (project-root project)))
-        (puthash project-root workspace-config
-                 eglot-multi-preset--project-workspace-configs)))))
+  (when-let ((project (project-current)))
+    (let ((project-root (project-root project)))
+      (if workspace-config
+          (puthash project-root workspace-config
+                   eglot-multi-preset--project-workspace-configs)
+        (remhash project-root eglot-multi-preset--project-workspace-configs)))))
 
 ;;; Eglot integration (advice)
 
@@ -428,7 +429,9 @@ With prefix argument, force preset selection even if dir-locals exists."
              (selected (completing-read "LSP preset: " candidates nil t)))
         (if (string= selected eglot-multi-preset-default-label)
             ;; "eglot default" selected - use standard eglot
-            (apply orig-fun args)
+            (progn
+              (eglot-multi-preset--apply-workspace-config nil)
+              (apply orig-fun args))
           ;; Custom preset selected
           (let* ((eglot-multi-preset--in-progress t)
                  (contact (eglot-multi-preset--get-contact selected major-mode))
