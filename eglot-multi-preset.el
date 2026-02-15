@@ -200,14 +200,20 @@ First checks the preset-specific config stored in
 to reading from .dir-locals.el."
   (let* ((project-root (project-root (eglot--project server)))
          (preset-config (gethash project-root
-                                 eglot-multi-preset--project-workspace-configs)))
+                                 eglot-multi-preset--project-workspace-configs))
+         (dir-local-config
+          ;; Fallback: read from dir-locals (existing behavior)
+          (with-temp-buffer
+            (setq default-directory project-root)
+            (setq major-mode (car (eglot--major-modes server)))
+            (hack-dir-local-variables-non-file-buffer)
+            eglot-workspace-configuration)))
     (or preset-config
-        ;; Fallback: read from dir-locals (existing behavior)
-        (with-temp-buffer
-          (setq default-directory project-root)
-          (setq major-mode (car (eglot--major-modes server)))
-          (hack-dir-local-variables-non-file-buffer)
-          eglot-workspace-configuration))))
+        ;; If no dir-local value is set, this can still be the default
+        ;; function value.  In that case, return nil to avoid sending a
+        ;; function object as workspace configuration.
+        (unless (functionp dir-local-config)
+          dir-local-config))))
 
 ;;; Internal functions
 
