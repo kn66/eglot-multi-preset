@@ -102,19 +102,9 @@ unless NAME already ends with `.cmd' or `.exe'."
     name))
 
 (defconst eglot-multi-preset--eslint-workspace-config
-  '(:eslint ( :validate "probe"
-              :packageManager "npm"
-              :run "onType"
-              :format :json-false
-              :codeAction ( :disableRuleComment ( :enable t
-                                                  :location "separateLine")
-                            :showDocumentation (:enable t))
-              :codeActionOnSave ( :enable
-                                  :json-false
-                                  :mode "all")))
+  '(:eslint (:validate "probe"))
   "Default workspace configuration for ESLint language server.
-This configuration is required for vscode-eslint-language-server
-to provide diagnostics via Flymake.")
+Uses a minimal setting to enable diagnostics via Flymake.")
 
 (defun eglot-multi-preset--make-default-alist ()
   "Generate the default preset alist with platform-appropriate executable names."
@@ -401,6 +391,19 @@ Supports multiplexed commands like:
   (cl-remove-if #'executable-find
                 (eglot-multi-preset--contact-executables contact)))
 
+(defun eglot-multi-preset--contact-from-server-programs (server-programs mode)
+  "Extract CONTACT for MODE from SERVER-PROGRAMS.
+SERVER-PROGRAMS should be a value compatible with `eglot-server-programs'."
+  (when (listp server-programs)
+    (when-let* ((entry
+                 (cl-find-if
+                  (lambda (item)
+                    (let ((modes (car-safe item)))
+                      (or (eq modes mode)
+                          (and (listp modes) (memq mode modes)))))
+                  server-programs)))
+      (cdr entry))))
+
 (defun eglot-multi-preset--get-contact (preset-name mode)
   "Get contact specification for PRESET-NAME in MODE.
 Returns the contact list for the preset, or nil if PRESET-NAME
@@ -467,21 +470,28 @@ With prefix argument, force preset selection even if dir-locals exists."
      ;; Dir-locals config exists and not forcing - use it
      ((and existing-config (not force-selection))
       (message "Using eglot preset from .dir-locals.el")
-      ;; If `.dir-locals.el' is in the project root, Eglot already sees local
-      ;; variables.  Do not intervene with server/workspace resolution in this
-      ;; path; let Eglot's standard dir-locals flow handle it.
-      (if eglot-multi-preset-dir-locals-directory
-          (let ((workspace-config (eglot-multi-preset--dir-locals-get-workspace-config))
-                (eglot-server-programs (append existing-config eglot-server-programs)))
-            (when-let ((missing (eglot-multi-preset--missing-executables (nth 3 args))))
+      (let* ((workspace-config (eglot-multi-preset--dir-locals-get-workspace-config))
+             (contact-from-args (nth 3 args))
+             (saved-contact (eglot-multi-preset--contact-from-server-programs
+                             existing-config major-mode))
+             (contact
+              (if (and (listp contact-from-args) (stringp (car contact-from-args)))
+                  contact-from-args
+                saved-contact)))
+        ;; If `.dir-locals.el' is in the project root, Eglot already sees local
+        ;; variables for server resolution.  Still mirror workspace config into
+        ;; our project cache so behavior is consistent with preset selection.
+        (if eglot-multi-preset-dir-locals-directory
+            (let ((eglot-server-programs (append existing-config eglot-server-programs)))
+              (when-let ((missing (eglot-multi-preset--missing-executables contact)))
+                (user-error "Missing LSP executables: %s" (mapconcat #'identity missing ", ")))
+              (eglot-multi-preset--apply-workspace-config workspace-config)
+              (apply orig-fun args))
+          (progn
+            (when-let ((missing (eglot-multi-preset--missing-executables contact)))
               (user-error "Missing LSP executables: %s" (mapconcat #'identity missing ", ")))
             (eglot-multi-preset--apply-workspace-config workspace-config)
-            (apply orig-fun args))
-        (progn
-          (when-let ((missing (eglot-multi-preset--missing-executables (nth 3 args))))
-            (user-error "Missing LSP executables: %s" (mapconcat #'identity missing ", ")))
-          (eglot-multi-preset--apply-workspace-config nil)
-          (apply orig-fun args))))
+            (apply orig-fun args)))))
      ;; Show preset selection
      (t
       (let* ((candidates (eglot-multi-preset--build-candidates major-mode))
