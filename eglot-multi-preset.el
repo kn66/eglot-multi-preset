@@ -267,7 +267,8 @@ DIR is the directory where `.dir-locals.el' will be saved.
 MODE is the major mode to associate with the configuration."
   (condition-case err
       (let* ((dir-locals-file (expand-file-name ".dir-locals.el" dir))
-             (server-entry (list (cons (list mode) contact))))
+             (server-entry (list (cons (list mode) contact)))
+             (existing-buffer (get-file-buffer dir-locals-file)))
         ;; Ensure directory exists
         (unless (file-exists-p dir)
           (make-directory dir t))
@@ -307,8 +308,9 @@ MODE is the major mode to associate with the configuration."
             (insert ";;; Directory Local Variables -*- no-byte-compile: t -*-\n")
             (insert ";;; For more information see (info \"(emacs) Directory Variables\")\n\n")
             (pp content (current-buffer))
-            (save-buffer)
-            (kill-buffer)))
+            (save-buffer)))
+        (unless existing-buffer
+          (kill-buffer (get-file-buffer dir-locals-file)))
         (message "Saved eglot preset to %s" dir-locals-file))
     (error
      (message "Failed to save eglot preset: %s" (error-message-string err)))))
@@ -520,7 +522,8 @@ This allows you to reset the saved preset and be prompted again."
   (let ((dir-locals-file (eglot-multi-preset--dir-locals-file)))
     (if (not (file-exists-p dir-locals-file))
         (message "No .dir-locals.el found at %s" dir-locals-file)
-      (with-current-buffer (find-file-noselect dir-locals-file)
+      (let ((existing-buffer (get-file-buffer dir-locals-file)))
+        (with-current-buffer (find-file-noselect dir-locals-file)
         (goto-char (point-min))
         (let ((content (condition-case nil
                            (eglot-multi-preset--safe-read (current-buffer))
@@ -547,7 +550,8 @@ This allows you to reset the saved preset and be prompted again."
                   (insert "()\n"))
                 (save-buffer)
                 (message "Cleared eglot preset for %s from %s" major-mode dir-locals-file)))))
-        (kill-buffer)))))
+          (unless existing-buffer
+            (kill-buffer (get-file-buffer dir-locals-file))))))))
 
 (provide 'eglot-multi-preset)
 ;;; eglot-multi-preset.el ends here
