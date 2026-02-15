@@ -440,16 +440,15 @@ With prefix argument, force preset selection even if dir-locals exists."
      ((and existing-config (not force-selection))
       (message "Using eglot preset from .dir-locals.el")
       ;; If `.dir-locals.el' is in the project root, Eglot already sees local
-      ;; variables.  Avoid re-injecting `eglot-server-programs' via dynamic
-      ;; binding, which can conflict with the contact selected by Eglot's
-      ;; interactive spec.
+      ;; variables.  Do not intervene with server/workspace resolution in this
+      ;; path; let Eglot's standard dir-locals flow handle it.
       (if eglot-multi-preset-dir-locals-directory
           (let ((workspace-config (eglot-multi-preset--dir-locals-get-workspace-config))
                 (eglot-server-programs (append existing-config eglot-server-programs)))
             (eglot-multi-preset--apply-workspace-config workspace-config)
             (apply orig-fun args))
         (progn
-          (eglot-multi-preset--apply-workspace-config eglot-workspace-configuration)
+          (eglot-multi-preset--apply-workspace-config nil)
           (apply orig-fun args))))
      ;; Show preset selection
      (t
