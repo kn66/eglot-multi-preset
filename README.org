@@ -17,6 +17,7 @@ Multi-server LSP preset selection for Eglot.
 - Force re-selection with =C-u M-x eglot=
 - Programmatic API for registering custom presets
 - Mode inheritance support (e.g., =python-ts-mode= inherits from =python-mode=)
+- Language ID overrides for modes that need explicit LSP IDs (e.g. =tsx-ts-mode=)
 
 * Requirements
 
@@ -112,6 +113,16 @@ Directory where =.dir-locals.el= should be saved. If =nil= (default), uses the p
   (setq eglot-multi-preset-dir-locals-directory "/path/to/config/dir")
 #+end_src
 
+** =eglot-multi-preset-language-id-overrides=
+
+Override LSP =languageId= per mode when needed:
+
+#+begin_src emacs-lisp
+  (setq eglot-multi-preset-language-id-overrides
+        '((tsx-ts-mode . "typescriptreact")
+          (typescript-ts-mode . "typescript")))
+#+end_src
+
 * Windows Support
 
 On Windows, Node.js CLI tools installed via npm are provided as =.cmd= batch files (e.g., =rass.cmd=, =lspx.cmd=, =typescript-language-server.cmd=). This package automatically detects Windows and appends the =.cmd= suffix to executable names in the default presets.
@@ -146,6 +157,38 @@ The package includes these default presets:
 | rass: ts-ls + eslint + tailwind | typescript-language-server + eslint + tailwindcss  |
 | lspx: ts-ls + eslint            | typescript-language-server --stdio + eslint --stdio |
 | lspx: ts-ls + eslint + tailwind | typescript-language-server --stdio + eslint --stdio + tailwindcss --stdio |
+
+* Troubleshooting
+
+** ESLint diagnostics not shown
+
+When using multi-server setups, some ESLint language server versions request
+=workspace/configuration= with an empty =section= string.
+
+=eglot-multi-preset= now includes an empty-section alias in workspace
+configuration, and for ESLint configs it returns the =:eslint= subsection
+(instead of the full plist) so this request resolves correctly.  The default
+ESLint workspace config includes:
+
+#+begin_src emacs-lisp
+  (:eslint (:validate "probe"
+             :workingDirectory (:mode "auto")
+             :workingDirectories [(:mode "auto")]
+             :packageManager "npm"))
+#+end_src
+
+** Tailwind completion not shown
+
+Tailwind presets now send non-null =initializationOptions.configuration=
+compatible with =lsp-tailwindcss= defaults.
+
+If logs still contain =No matching project for document=, the Tailwind project
+was not detected by =tailwindcss-language-server=.  A common cause is mixing
+Tailwind v4 package versions with v3-style CSS entrypoints
+(=@tailwind base;=, =@tailwind components;=, =@tailwind utilities;=).
+
+Make sure your Tailwind setup is version-consistent (v3 config/style or v4
+config/style), then restart Eglot.
 
 * Custom Preset API
 
