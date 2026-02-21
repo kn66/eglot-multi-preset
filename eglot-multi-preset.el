@@ -101,6 +101,16 @@ When an override exists, it takes precedence over automatic Windows
   :type '(alist :key-type string :value-type string)
   :group 'eglot-multi-preset)
 
+;; Backward compatibility for callers that referenced previous internal vars.
+;; Declare aliases before their referent variables to avoid byte-compile
+;; ordering warnings.
+(defvaralias 'eglot-multi-preset--eslint-workspace-config
+  'eglot-multi-preset-eslint-workspace-config)
+(defvaralias 'eglot-multi-preset--tailwind-workspace-config
+  'eglot-multi-preset-tailwind-workspace-config)
+(defvaralias 'eglot-multi-preset--tailwind-initialization-options
+  'eglot-multi-preset-tailwind-initialization-options)
+
 (defun eglot-multi-preset--executable-override (name)
   "Return override command for NAME, or nil if no override exists."
   (let* ((base-name (replace-regexp-in-string "\\.\\(cmd\\|exe\\)\\'" "" name t t)))
@@ -158,14 +168,6 @@ Mirrors the baseline settings from lsp-tailwindcss."
 lsp-tailwindcss sends a non-null `configuration' object at initialize time."
   :type 'sexp
   :group 'eglot-multi-preset)
-
-;; Backward compatibility for callers that referenced previous internal vars.
-(defvaralias 'eglot-multi-preset--eslint-workspace-config
-  'eglot-multi-preset-eslint-workspace-config)
-(defvaralias 'eglot-multi-preset--tailwind-workspace-config
-  'eglot-multi-preset-tailwind-workspace-config)
-(defvaralias 'eglot-multi-preset--tailwind-initialization-options
-  'eglot-multi-preset-tailwind-initialization-options)
 
 (defun eglot-multi-preset--make-default-alist ()
   "Generate the default preset alist with platform-appropriate executable names."
@@ -301,7 +303,8 @@ By default, this value is built from built-ins plus
 Built-in defaults include:
   - Python: rass presets with ty + ruff, pyright + ruff,
     and pyright + ty + ruff
-  - TypeScript/JS: rass presets with ts-ls + eslint, and ts-ls + eslint + tailwind"
+  - TypeScript/JS: rass presets with ts-ls + eslint,
+    and ts-ls + eslint + tailwind"
   :type '(alist :key-type (choice symbol (repeat symbol))
                 :value-type (alist :key-type string :value-type sexp))
   :group 'eglot-multi-preset)
@@ -520,9 +523,7 @@ otherwise returns the project root directory."
   "Choose target directory for saving `.dir-locals.el'."
   (if eglot-multi-preset-dir-locals-directory
       (expand-file-name eglot-multi-preset-dir-locals-directory)
-    (read-directory-name "Save .dir-locals.el to: "
-                         (eglot-multi-preset--get-dir-locals-directory)
-                         nil t)))
+    (expand-file-name (eglot-multi-preset--get-dir-locals-directory))))
 
 (defun eglot-multi-preset--read-dir-locals ()
   "Read and parse `.dir-locals.el' content.
@@ -615,13 +616,19 @@ group still uses the selected preset."
                                   (cons (cons 'eglot-server-programs server-entry)
                                         (cdr mode-entry)))))
                       ;; Update eglot-workspace-configuration if provided
-                      (when workspace-config
-                        (let ((ws-entry (assq 'eglot-workspace-configuration (cdr mode-entry))))
-                          (if ws-entry
-                              (setcdr ws-entry workspace-config)
-                            (setcdr mode-entry
-                                    (cons (cons 'eglot-workspace-configuration workspace-config)
-                                          (cdr mode-entry)))))))
+                      (let ((ws-entry (assq 'eglot-workspace-configuration (cdr mode-entry))))
+                        (if workspace-config
+                            (if ws-entry
+                                (setcdr ws-entry workspace-config)
+                              (setcdr mode-entry
+                                      (cons (cons 'eglot-workspace-configuration workspace-config)
+                                            (cdr mode-entry))))
+                          ;; Clear stale value when switching to a preset
+                          ;; without workspace configuration.
+                          (setcdr mode-entry
+                                  (assq-delete-all
+                                   'eglot-workspace-configuration
+                                   (cdr mode-entry))))))
                   ;; Add new mode entry
                   (let ((new-entry (list (cons 'eglot-server-programs server-entry))))
                     (when workspace-config
@@ -914,7 +921,8 @@ Also merges `eglot-multi-preset-extra-alist' into the rebuilt defaults."
   (message "Reset eglot-multi-preset presets (built-ins + extras)"))
 
 ;;;###autoload
-(defun eglot-multi-preset-register (mode preset-name contact &optional workspace-config)
+(defun eglot-multi-preset-register
+    (mode preset-name contact &optional workspace-config)
   "Register a preset for MODE.
 MODE is a major mode symbol.
 PRESET-NAME is a string identifying the preset.
@@ -930,7 +938,8 @@ If MODE belongs to a grouped mode entry in
 `eglot-multi-preset-alist', that entry is updated.
 
 Example:
-  (eglot-multi-preset-register \\='python-mode \"my-preset\" \\='(\"my-server\" \"--stdio\"))"
+  (eglot-multi-preset-register
+   \\='python-mode \"my-preset\" \\='(\"my-server\" \"--stdio\"))"
   (let* ((preset-value
           (if (eglot-multi-preset--extended-format-p contact)
               contact
@@ -965,10 +974,13 @@ PRESET-NAME is the string identifying the preset to remove."
 
 ;;;###autoload
 (defun eglot-multi-preset-clear-dir-locals ()
-  "Remove eglot-server-programs from `.dir-locals.el' for current mode.
-This allows you to reset the saved preset and be prompted again."
+  "Clear saved eglot preset settings from `.dir-locals.el' for current mode.
+This removes `eglot-server-programs' and `eglot-workspace-configuration'
+for the current mode and related modes in the same preset group."
   (interactive)
-  (let ((dir-locals-file (eglot-multi-preset--dir-locals-file)))
+  (let ((target-mode major-mode)
+        (target-modes (eglot-multi-preset--related-modes major-mode))
+        (dir-locals-file (eglot-multi-preset--dir-locals-file)))
     (if (not (file-exists-p dir-locals-file))
         (message "No .dir-locals.el found at %s" dir-locals-file)
       (let ((existing-buffer (get-file-buffer dir-locals-file)))
@@ -978,27 +990,34 @@ This allows you to reset the saved preset and be prompted again."
                              (eglot-multi-preset--safe-read (current-buffer))
                            (error nil))))
             (when content
-              (let ((mode-entry (assq major-mode content)))
-                (if (not mode-entry)
-                    (message "No eglot preset found for %s in .dir-locals.el" major-mode)
-                  ;; Remove eglot-server-programs from mode entry
-                  (setcdr mode-entry
-                          (assq-delete-all 'eglot-server-programs (cdr mode-entry)))
-                  ;; Remove mode entry if empty
-                  (unless (cdr mode-entry)
-                    (setq content (assq-delete-all major-mode content)))
+              (let ((cleared-count 0))
+                (dolist (mode target-modes)
+                  (when-let ((mode-entry (assq mode content)))
+                    (setcdr mode-entry
+                            (assq-delete-all
+                             'eglot-server-programs
+                             (cdr mode-entry)))
+                    (setcdr mode-entry
+                            (assq-delete-all
+                             'eglot-workspace-configuration
+                             (cdr mode-entry)))
+                    (unless (cdr mode-entry)
+                      (setq content (assq-delete-all mode content)))
+                    (setq cleared-count (1+ cleared-count))))
+                (if (zerop cleared-count)
+                    (message "No eglot preset found for %s in .dir-locals.el"
+                             target-mode)
                   ;; Write back
                   (erase-buffer)
+                  (insert ";;; Directory Local Variables -*- no-byte-compile: t -*-\n")
+                  (insert ";;; For more information see (info \"(emacs) Directory Variables\")\n\n")
                   (if content
-                      (progn
-                        (insert ";;; Directory Local Variables -*- no-byte-compile: t -*-\n")
-                        (insert ";;; For more information see (info \"(emacs) Directory Variables\")\n\n")
-                        (pp content (current-buffer)))
-                    (insert ";;; Directory Local Variables -*- no-byte-compile: t -*-\n")
-                    (insert ";;; For more information see (info \"(emacs) Directory Variables\")\n\n")
+                      (pp content (current-buffer))
                     (insert "()\n"))
                   (save-buffer)
-                  (message "Cleared eglot preset for %s from %s" major-mode dir-locals-file)))))
+                  (message "Cleared eglot preset for %s mode(s) from %s"
+                           (mapconcat #'symbol-name target-modes ", ")
+                           dir-locals-file)))))
           (unless existing-buffer
             (kill-buffer (get-file-buffer dir-locals-file))))))))
 

@@ -299,7 +299,8 @@ Remove a preset:
 
 ** =eglot-multi-preset-clear-dir-locals=
 
-Interactively remove saved eglot configuration from =.dir-locals.el= for the current mode:
+Interactively remove saved eglot configuration from =.dir-locals.el= for
+the current mode and related modes in the same preset group:
 
 #+begin_src emacs-lisp
   M-x eglot-multi-preset-clear-dir-locals
