@@ -57,9 +57,9 @@ Clone or download this repository, then add to your =load-path=:
 
 1. Enable the mode:
 
-   #+begin_src emacs-lisp
-     (eglot-multi-preset-mode 1)
-   #+end_src
+#+begin_src emacs-lisp
+  (eglot-multi-preset-mode 1)
+#+end_src
 
 2. Open a Python or TypeScript file and run =M-x eglot=
 
