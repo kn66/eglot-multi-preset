@@ -600,6 +600,12 @@ Returns the parsed alist, or nil if file doesn't exist or can't be parsed."
               (string-match-p "\\`\\s-*;.*\\'" line))))
    (split-string text "\n")))
 
+(defun eglot-multi-preset--ensure-unmodified-file-buffer (buffer file)
+  "Signal `user-error' when BUFFER visiting FILE has unsaved edits."
+  (when (and buffer (buffer-modified-p buffer))
+    (user-error "Refusing to edit %s because it has unsaved buffer changes"
+                file)))
+
 (defun eglot-multi-preset--dir-locals-find-mode-entry (dir-locals-content mode)
   "Find MODE entry in DIR-LOCALS-CONTENT with related-mode fallback.
 Lookup order is MODE, then related modes from
@@ -647,7 +653,7 @@ group still uses the selected preset.
 Returns non-nil on success, nil on failure."
   (let* ((dir-locals-file (expand-file-name ".dir-locals.el" dir))
          (target-modes (eglot-multi-preset--related-modes mode))
-         (existing-buffer (get-file-buffer dir-locals-file))
+         (existing-buffer (find-buffer-visiting dir-locals-file))
          (opened-buffer nil)
          (success nil))
     (unwind-protect
@@ -656,6 +662,9 @@ Returns non-nil on success, nil on failure."
               ;; Ensure directory exists
               (unless (file-exists-p dir)
                 (make-directory dir t))
+              (eglot-multi-preset--ensure-unmodified-file-buffer
+               existing-buffer
+               dir-locals-file)
               ;; Use add-dir-local-variable approach by manipulating the file directly
               (setq opened-buffer (find-file-noselect dir-locals-file))
               (with-current-buffer opened-buffer
@@ -819,11 +828,33 @@ Supports multiplexed commands like:
       (delete-dups (nreverse executables)))))
 
 (defun eglot-multi-preset--tcp-contact-p (contact)
-  "Return non-nil if CONTACT is TCP form (HOST PORT [TCP-ARGS...])."
-  (and (listp contact)
-       (stringp (car contact))
-       (integerp (cadr contact))
-       (> (cadr contact) 0)))
+  "Return non-nil if CONTACT is TCP form (HOST PORT [TCP-ARGS...]).
+TCP-ARGS must be a keyword/value list.  For 2-element forms, HOST must
+look like a network host literal to avoid misclassifying command contacts."
+  (let ((host (car-safe contact))
+        (port (cadr contact))
+        (tcp-args (cddr contact)))
+    (and (listp contact)
+         (stringp host)
+         (integerp port)
+         (> port 0)
+         (or
+          ;; Bare TCP contact: require host-like syntax for safety.
+          (and (null tcp-args)
+               (or (string= host "localhost")
+                   (string-match-p "\\`[0-9]+\\(?:\\.[0-9]+\\)\\{3\\}\\'" host)
+                   (string-match-p "\\`\\[?[[:xdigit:]:]+\\]?\\'" host)
+                   (string-match-p "\\`[^./\\\\]+\\.[^./\\\\]+\\'" host)))
+          ;; TCP args form: require keyword/value pairs.
+          (and (consp tcp-args)
+               (let ((rest tcp-args)
+                     (valid t))
+                 (while (and valid rest)
+                   (if (and (keywordp (car rest))
+                            (cdr rest))
+                       (setq rest (cddr rest))
+                     (setq valid nil)))
+                 (and valid (null rest))))))))
 
 (defun eglot-multi-preset--missing-executables (contact)
   "Return missing executable names in CONTACT command lists.
@@ -1067,8 +1098,10 @@ The first option is always \"eglot default\" which uses the standard
                         #'eglot-multi-preset--workspace-configuration-function))
       ;; Restore original default and remove advice when active.
       (when already-enabled
-        (setq-default eglot-workspace-configuration
-                      eglot-multi-preset--saved-workspace-configuration)
+        (when (eq (default-value 'eglot-workspace-configuration)
+                  #'eglot-multi-preset--workspace-configuration-function)
+          (setq-default eglot-workspace-configuration
+                        eglot-multi-preset--saved-workspace-configuration))
         (clrhash eglot-multi-preset--project-workspace-configs)
         (advice-remove 'eglot #'eglot-multi-preset--maybe-select-preset))
       (setq eglot-multi-preset--saved-workspace-configuration nil))))
@@ -1154,10 +1187,13 @@ for the current mode and related modes in the same preset group."
         (dir-locals-file (eglot-multi-preset--dir-locals-file)))
     (if (not (file-exists-p dir-locals-file))
         (message "No .dir-locals.el found at %s" dir-locals-file)
-      (let ((existing-buffer (get-file-buffer dir-locals-file))
+      (let ((existing-buffer (find-buffer-visiting dir-locals-file))
             (opened-buffer nil))
         (unwind-protect
             (progn
+              (eglot-multi-preset--ensure-unmodified-file-buffer
+               existing-buffer
+               dir-locals-file)
               (setq opened-buffer (find-file-noselect dir-locals-file))
               (with-current-buffer opened-buffer
                 (goto-char (point-min))

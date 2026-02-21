@@ -50,6 +50,21 @@
       (ignore-errors (eglot-multi-preset-mode 0))
       (setq-default eglot-workspace-configuration original-default))))
 
+(ert-deftest eglot-multi-preset-mode-disable-preserves-external-default-while-active ()
+  "Disabling the mode should not overwrite external defaults set while active."
+  (let ((original-default (default-value 'eglot-workspace-configuration))
+        (sentinel 'eglot-multi-preset-test-sentinel-live-change))
+    (unwind-protect
+        (progn
+          (eglot-multi-preset-mode 0)
+          (eglot-multi-preset-mode 1)
+          (setq-default eglot-workspace-configuration sentinel)
+          (eglot-multi-preset-mode 0)
+          (should (eq (default-value 'eglot-workspace-configuration)
+                      sentinel)))
+      (ignore-errors (eglot-multi-preset-mode 0))
+      (setq-default eglot-workspace-configuration original-default))))
+
 (ert-deftest eglot-multi-preset-missing-executables-ignores-tcp-contact ()
   "TCP contacts of the form (HOST PORT) should skip executable checks."
   (should-not (eglot-multi-preset--missing-executables '("127.0.0.1" 2087))))
@@ -64,6 +79,12 @@
   "Command contacts should still report missing executables."
   (let ((program "eglot-multi-preset-not-a-real-executable-for-test"))
     (should (equal (eglot-multi-preset--missing-executables (list program))
+                   (list program)))))
+
+(ert-deftest eglot-multi-preset-missing-executables-checks-ambiguous-two-item-command ()
+  "Two-item command contacts should not be mistaken for TCP endpoints."
+  (let ((program "eglot-multi-preset-not-a-real-executable-for-test"))
+    (should (equal (eglot-multi-preset--missing-executables (list program 2087))
                    (list program)))))
 
 (ert-deftest eglot-multi-preset-contact-from-server-programs-matches-language-id-spec ()
@@ -194,6 +215,33 @@
                            '(((python-ts-mode) . ("rass" "python")))))))
       (ignore-errors (delete-directory tmp-dir t)))))
 
+(ert-deftest eglot-multi-preset-save-to-dir-locals-refuses-modified-open-buffer ()
+  "Saving should fail when .dir-locals is open with unsaved edits."
+  (let* ((tmp-dir (make-temp-file "eglot-multi-preset-tests-" t))
+         (dir-locals-file (expand-file-name ".dir-locals.el" tmp-dir))
+         (original-content
+          ";;; Directory Local Variables -*- no-byte-compile: t -*-\n()\n")
+         (dir-locals-buffer nil))
+    (unwind-protect
+        (progn
+          (with-temp-file dir-locals-file
+            (insert original-content))
+          (setq dir-locals-buffer (find-file-noselect dir-locals-file))
+          (with-current-buffer dir-locals-buffer
+            (goto-char (point-max))
+            (insert ";; unsaved edit\n"))
+          (should (buffer-modified-p dir-locals-buffer))
+          (should-not
+           (eglot-multi-preset--save-to-dir-locals
+            '("rass" "python") nil tmp-dir 'python-mode))
+          (should (equal (with-temp-buffer
+                           (insert-file-contents dir-locals-file)
+                           (buffer-string))
+                         original-content)))
+      (when (buffer-live-p dir-locals-buffer)
+        (kill-buffer dir-locals-buffer))
+      (ignore-errors (delete-directory tmp-dir t)))))
+
 (ert-deftest eglot-multi-preset-refresh-eglot-args-falls-back-when-guess-missing ()
   "Interactive arg refresh should keep ARGS when contact guess is unavailable."
   (let ((args '(nil nil nil nil nil t)))
@@ -287,6 +335,35 @@
             (should (equal saved-server-programs
                            '(((sh-mode) . ("bash-language-server" "start")))))
             (should (equal (cdr (assq 'fill-column (cdr python-entry))) 90))))
+      (ignore-errors (delete-directory tmp-dir t)))))
+
+(ert-deftest eglot-multi-preset-clear-dir-locals-refuses-modified-open-buffer ()
+  "Clearing should fail when .dir-locals is open with unsaved edits."
+  (let* ((tmp-dir (make-temp-file "eglot-multi-preset-tests-" t))
+         (dir-locals-file (expand-file-name ".dir-locals.el" tmp-dir))
+         (original-content
+          ";;; Directory Local Variables -*- no-byte-compile: t -*-\n()\n")
+         (dir-locals-buffer nil))
+    (unwind-protect
+        (progn
+          (with-temp-file dir-locals-file
+            (insert original-content))
+          (setq dir-locals-buffer (find-file-noselect dir-locals-file))
+          (with-current-buffer dir-locals-buffer
+            (goto-char (point-max))
+            (insert ";; unsaved edit\n"))
+          (should (buffer-modified-p dir-locals-buffer))
+          (let ((eglot-multi-preset-dir-locals-directory tmp-dir)
+                (default-directory tmp-dir)
+                (major-mode 'python-mode))
+            (should-error (eglot-multi-preset-clear-dir-locals)
+                          :type 'user-error))
+          (should (equal (with-temp-buffer
+                           (insert-file-contents dir-locals-file)
+                           (buffer-string))
+                         original-content)))
+      (when (buffer-live-p dir-locals-buffer)
+        (kill-buffer dir-locals-buffer))
       (ignore-errors (delete-directory tmp-dir t)))))
 
 (provide 'eglot-multi-preset-tests)
