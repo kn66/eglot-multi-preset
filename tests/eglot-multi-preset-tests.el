@@ -10,7 +10,15 @@
 ;;; Code:
 
 (require 'ert)
+(require 'cl-lib)
 (require 'eglot-multi-preset)
+
+(defun eglot-multi-preset-tests--read-form (file)
+  "Read first Lisp form from FILE with read-time evaluation disabled."
+  (with-temp-buffer
+    (insert-file-contents file)
+    (goto-char (point-min))
+    (eglot-multi-preset--safe-read (current-buffer))))
 
 (ert-deftest eglot-multi-preset-mode-reenable-preserves-workspace-default ()
   "Re-enabling the mode should not overwrite the saved default value."
@@ -51,6 +59,67 @@
   (let ((program "eglot-multi-preset-not-a-real-executable-for-test"))
     (should (equal (eglot-multi-preset--missing-executables (list program))
                    (list program)))))
+
+(ert-deftest eglot-multi-preset-save-to-dir-locals-keeps-malformed-file ()
+  "Saving a preset must not overwrite malformed existing .dir-locals.el."
+  (let* ((tmp-dir (make-temp-file "eglot-multi-preset-tests-" t))
+         (dir-locals-file (expand-file-name ".dir-locals.el" tmp-dir))
+         (broken-content "((python-mode . (\n"))
+    (unwind-protect
+        (progn
+          (with-temp-file dir-locals-file
+            (insert broken-content))
+          (should-not
+           (eglot-multi-preset--save-to-dir-locals
+            '("rass" "python") nil tmp-dir 'python-mode))
+          (should
+           (equal (with-temp-buffer
+                    (insert-file-contents dir-locals-file)
+                    (buffer-string))
+                  broken-content)))
+      (ignore-errors (delete-directory tmp-dir t)))))
+
+(ert-deftest eglot-multi-preset-save-to-dir-locals-preserves-existing-workspace-config ()
+  "Saving a no-workspace preset keeps existing workspace config entries."
+  (let* ((tmp-dir (make-temp-file "eglot-multi-preset-tests-" t))
+         (dir-locals-file (expand-file-name ".dir-locals.el" tmp-dir))
+         (workspace-config '(:eslint (:validate "off")))
+         (initial-content
+          `((python-mode
+             . ((eglot-server-programs
+                 . (((python-mode) . ("old-server"))))
+                (eglot-workspace-configuration . ,workspace-config))))))
+    (unwind-protect
+        (progn
+          (with-temp-file dir-locals-file
+            (insert ";;; Directory Local Variables -*- no-byte-compile: t -*-\n")
+            (insert ";;; For more information see (info \"(emacs) Directory Variables\")\n\n")
+            (pp initial-content (current-buffer)))
+          (should
+           (eglot-multi-preset--save-to-dir-locals
+            '("rass" "python") nil tmp-dir 'python-mode))
+          (let* ((saved (eglot-multi-preset-tests--read-form dir-locals-file))
+                 (python-entry (assq 'python-mode saved))
+                 (saved-workspace
+                  (cdr (assq 'eglot-workspace-configuration (cdr python-entry)))))
+            (should (equal saved-workspace workspace-config))))
+      (ignore-errors (delete-directory tmp-dir t)))))
+
+(ert-deftest eglot-multi-preset-refresh-eglot-args-falls-back-when-guess-missing ()
+  "Interactive arg refresh should keep ARGS when contact guess is unavailable."
+  (let ((args '(nil nil nil nil nil t)))
+    (cl-letf (((symbol-function 'eglot-multi-preset--guess-contact)
+               (lambda () nil)))
+      (should (equal (eglot-multi-preset--refresh-eglot-args-if-interactive args)
+                     args)))))
+
+(ert-deftest eglot-multi-preset-refresh-eglot-args-rebuilds-interactive-contact ()
+  "Interactive arg refresh should use guessed contact when available."
+  (let ((args '(old-a old-b old-c old-d old-e t)))
+    (cl-letf (((symbol-function 'eglot-multi-preset--guess-contact)
+               (lambda () '("rass" "--" "server" "--stdio"))))
+      (should (equal (eglot-multi-preset--refresh-eglot-args-if-interactive args)
+                     '("rass" "--" "server" "--stdio" t))))))
 
 (provide 'eglot-multi-preset-tests)
 ;;; eglot-multi-preset-tests.el ends here

@@ -109,6 +109,9 @@ Directory where =.dir-locals.el= should be saved. If =nil= (default), uses the p
   (setq eglot-multi-preset-dir-locals-directory "/path/to/config/dir")
 #+end_src
 
+*Note:* Saving presets rewrites =.dir-locals.el= as a normalized Lisp form.
+Existing comments or hand formatting in that file may be lost after save.
+
 ** =eglot-multi-preset-language-id-overrides=
 
 Override LSP =languageId= per mode when needed:
