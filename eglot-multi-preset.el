@@ -684,6 +684,17 @@ workspace-configuration function when eglot requests it."
   "Non-nil when preset selection is in progress.
 Used to prevent recursive advice calls.")
 
+(defun eglot-multi-preset--refresh-eglot-args-if-interactive (args)
+  "Refresh eglot ARGS for interactive calls after preset injection.
+When this advice changes `eglot-server-programs' dynamically, ARGS may
+still point to contacts guessed before the change.  Re-guess in that
+case so `eglot' starts the intended server contact."
+  (if (and (listp args)
+           (>= (length args) 6)
+           (nth 5 args))
+      (append (eglot--guess-contact nil) (list t))
+    args))
+
 (defun eglot-multi-preset--maybe-select-preset (orig-fun &rest args)
   "Advice for `eglot' to prompt for preset selection.
 If presets are registered for the current mode and no server is
@@ -717,7 +728,8 @@ With prefix argument, force preset selection even if dir-locals exists."
           (when-let ((missing (eglot-multi-preset--missing-executables contact)))
             (user-error "Missing LSP executables: %s" (mapconcat #'identity missing ", ")))
           (eglot-multi-preset--apply-workspace-config workspace-config)
-          (apply orig-fun args))))
+          (apply orig-fun
+                 (eglot-multi-preset--refresh-eglot-args-if-interactive args)))))
      ;; Show preset selection
      (t
       (let* ((candidates (eglot-multi-preset--build-candidates major-mode))
@@ -747,7 +759,8 @@ With prefix argument, force preset selection even if dir-locals exists."
                            (y-or-n-p "Save this preset to .dir-locals.el? ")))
               (let ((save-dir (eglot-multi-preset--choose-save-directory)))
                 (eglot-multi-preset--save-to-dir-locals contact workspace-config save-dir major-mode)))
-            (apply orig-fun args))))))))
+            (apply orig-fun
+                   (eglot-multi-preset--refresh-eglot-args-if-interactive args)))))))))
 
 (defvar eglot-multi-preset--saved-workspace-configuration nil
   "Saved value of `eglot-workspace-configuration' default before mode activation.")
