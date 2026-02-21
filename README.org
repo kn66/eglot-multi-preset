@@ -141,6 +141,50 @@ built-in preset contacts:
   (eglot-multi-preset-reset-default-presets)
 #+end_src
 
+** =eglot-multi-preset-eslint-workspace-config=
+
+Override the workspace/configuration payload used for ESLint presets:
+
+#+begin_src emacs-lisp
+  (setq eglot-multi-preset-eslint-workspace-config
+        '(:eslint (:validate "probe"
+                   :workingDirectory (:mode "auto")
+                   :workingDirectories [(:mode "auto")]
+                   :packageManager "pnpm")))
+#+end_src
+
+** =eglot-multi-preset-tailwind-workspace-config=
+
+Override the workspace/configuration payload used for Tailwind presets:
+
+#+begin_src emacs-lisp
+  (setq eglot-multi-preset-tailwind-workspace-config
+        '(:tailwindCSS (:emmetCompletions :json-false
+                        :showPixelEquivalents t
+                        :rootFontSize 16
+                        :validate t
+                        :hovers t
+                        :suggestions t
+                        :codeActions t
+                        :classAttributes ["class" "className"])))
+#+end_src
+
+** =eglot-multi-preset-tailwind-initialization-options=
+
+Override initialization options passed to =tailwindcss-language-server=
+for Tailwind presets:
+
+#+begin_src emacs-lisp
+  (setq eglot-multi-preset-tailwind-initialization-options
+        '(:configuration (:tailwindCSS (:validate t :suggestions t))))
+#+end_src
+
+After changing any of the three settings above, regenerate built-in presets:
+
+#+begin_src emacs-lisp
+  (eglot-multi-preset-reset-default-presets)
+#+end_src
+
 * Windows Support
 
 On Windows, Node.js CLI tools installed via npm are provided as =.cmd= batch files (e.g., =rass.cmd=, =lspx.cmd=, =typescript-language-server.cmd=). This package automatically detects Windows and appends the =.cmd= suffix to executable names in the default presets.

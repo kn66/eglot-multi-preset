@@ -121,15 +121,17 @@ unless NAME already ends with `.cmd' or `.exe'."
         (concat name ".cmd")
       name)))
 
-(defconst eglot-multi-preset--eslint-workspace-config
+(defcustom eglot-multi-preset-eslint-workspace-config
   '(:eslint (:validate "probe"
              :workingDirectory (:mode "auto")
              :workingDirectories [(:mode "auto")]
              :packageManager "npm"))
-  "Default workspace configuration for ESLint language server.
-Based on lsp-mode defaults for vscode-eslint-language-server.")
+  "Workspace configuration sent for ESLint presets.
+Based on lsp-mode defaults for vscode-eslint-language-server."
+  :type 'sexp
+  :group 'eglot-multi-preset)
 
-(defconst eglot-multi-preset--tailwind-workspace-config
+(defcustom eglot-multi-preset-tailwind-workspace-config
   '(:tailwindCSS (:emmetCompletions :json-false
                   :showPixelEquivalents t
                   :rootFontSize 16
@@ -138,10 +140,12 @@ Based on lsp-mode defaults for vscode-eslint-language-server.")
                   :suggestions t
                   :codeActions t
                   :classAttributes ["class" "className" "ngClass" "class:list"]))
-  "Default workspace configuration for tailwindcss-language-server.
-Mirrors the baseline settings from lsp-tailwindcss.")
+  "Workspace configuration sent for Tailwind CSS presets.
+Mirrors the baseline settings from lsp-tailwindcss."
+  :type 'sexp
+  :group 'eglot-multi-preset)
 
-(defconst eglot-multi-preset--tailwind-initialization-options
+(defcustom eglot-multi-preset-tailwind-initialization-options
   '(:configuration (:tailwindCSS (:emmetCompletions :json-false
                      :showPixelEquivalents t
                      :rootFontSize 16
@@ -150,8 +154,18 @@ Mirrors the baseline settings from lsp-tailwindcss.")
                      :suggestions t
                      :codeActions t
                      :classAttributes ["class" "className" "ngClass" "class:list"])))
-  "Initialization options for tailwindcss-language-server.
-lsp-tailwindcss sends a non-null `configuration' object at initialize time.")
+  "Initialization options sent for Tailwind CSS presets.
+lsp-tailwindcss sends a non-null `configuration' object at initialize time."
+  :type 'sexp
+  :group 'eglot-multi-preset)
+
+;; Backward compatibility for callers that referenced previous internal vars.
+(defvaralias 'eglot-multi-preset--eslint-workspace-config
+  'eglot-multi-preset-eslint-workspace-config)
+(defvaralias 'eglot-multi-preset--tailwind-workspace-config
+  'eglot-multi-preset-tailwind-workspace-config)
+(defvaralias 'eglot-multi-preset--tailwind-initialization-options
+  'eglot-multi-preset-tailwind-initialization-options)
 
 (defun eglot-multi-preset--make-default-alist ()
   "Generate the default preset alist with platform-appropriate executable names."
@@ -178,29 +192,29 @@ lsp-tailwindcss sends a non-null `configuration' object at initialize time.")
        . (("rass: ts-ls + eslint"
            . ( :contact (,rass "--" ,ts-ls "--stdio"
                                "--" ,eslint "--stdio")
-               :workspace-config ,eglot-multi-preset--eslint-workspace-config))
+               :workspace-config ,eglot-multi-preset-eslint-workspace-config))
           ("rass: ts-ls + eslint + tailwind"
            . ( :contact (,rass "--" ,ts-ls "--stdio"
                                "--" ,eslint "--stdio"
                                "--" ,tailwind "--stdio"
                                :initializationOptions
-                               ,eglot-multi-preset--tailwind-initialization-options)
+                               ,eglot-multi-preset-tailwind-initialization-options)
                :workspace-config
-               ,(append eglot-multi-preset--eslint-workspace-config
-                        eglot-multi-preset--tailwind-workspace-config)))
+               ,(append eglot-multi-preset-eslint-workspace-config
+                        eglot-multi-preset-tailwind-workspace-config)))
           ("lspx: ts-ls + eslint"
            . ( :contact (,lspx "--lsp" ,(format "%s --stdio" ts-ls)
                                "--lsp" ,(format "%s --stdio" eslint))
-               :workspace-config ,eglot-multi-preset--eslint-workspace-config))
+               :workspace-config ,eglot-multi-preset-eslint-workspace-config))
           ("lspx: ts-ls + eslint + tailwind"
            . ( :contact (,lspx "--lsp" ,(format "%s --stdio" ts-ls)
                                "--lsp" ,(format "%s --stdio" eslint)
                                "--lsp" ,(format "%s --stdio" tailwind)
                                :initializationOptions
-                               ,eglot-multi-preset--tailwind-initialization-options)
+                               ,eglot-multi-preset-tailwind-initialization-options)
                :workspace-config
-               ,(append eglot-multi-preset--eslint-workspace-config
-                        eglot-multi-preset--tailwind-workspace-config))))))))
+               ,(append eglot-multi-preset-eslint-workspace-config
+                        eglot-multi-preset-tailwind-workspace-config))))))))
 
 ;;; Core data structure
 
@@ -814,8 +828,11 @@ The first option is always \"eglot default\" which uses the standard
 ;;;###autoload
 (defun eglot-multi-preset-reset-default-presets ()
   "Reset `eglot-multi-preset-alist' to built-in defaults.
-This re-applies `eglot-multi-preset-executable-overrides' to the
-generated preset contacts."
+This re-applies executable and workspace customizations, including
+`eglot-multi-preset-executable-overrides',
+`eglot-multi-preset-eslint-workspace-config',
+`eglot-multi-preset-tailwind-workspace-config', and
+`eglot-multi-preset-tailwind-initialization-options'."
   (interactive)
   (setq eglot-multi-preset-alist (eglot-multi-preset--make-default-alist))
   (message "Reset eglot-multi-preset built-in presets"))
