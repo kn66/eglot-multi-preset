@@ -5,7 +5,7 @@ Multi-server LSP preset selection for Eglot.
 
 * Overview
 
-=eglot-multi-preset= provides a mechanism for selecting LSP server presets when starting Eglot. This is particularly useful when working with LSP multiplexers like [[https://github.com/AshleyYakeley/rassumfrassum][rass (rassumfrassum)]] where different projects may require different server combinations.
+=eglot-multi-preset= provides a mechanism for selecting LSP server presets when starting Eglot. This is particularly useful when working with LSP multiplexers like [[https://github.com/joaotavora/rassumfrassum][rass (rassumfrassum)]] where different projects may require different server combinations.
 
 *Important:* This package is designed for *multi-server configurations only*. Single-server setups should use =eglot-server-programs= directly.
 
