@@ -734,10 +734,19 @@ Supports multiplexed commands like:
           (setq rest (cdr rest))))
       (delete-dups (nreverse executables)))))
 
+(defun eglot-multi-preset--tcp-contact-p (contact)
+  "Return non-nil if CONTACT is a TCP tuple of the form (HOST PORT)."
+  (and (listp contact)
+       (= (length contact) 2)
+       (stringp (car contact))
+       (integerp (cadr contact))))
+
 (defun eglot-multi-preset--missing-executables (contact)
-  "Return missing executable names in CONTACT."
-  (cl-remove-if #'executable-find
-                (eglot-multi-preset--contact-executables contact)))
+  "Return missing executable names in CONTACT command lists.
+For TCP contacts like (HOST PORT), return nil."
+  (unless (eglot-multi-preset--tcp-contact-p contact)
+    (cl-remove-if #'executable-find
+                  (eglot-multi-preset--contact-executables contact))))
 
 (defun eglot-multi-preset--contact-from-server-programs (server-programs mode)
   "Extract CONTACT for MODE from SERVER-PROGRAMS.
@@ -890,19 +899,24 @@ The first option is always \"eglot default\" which uses the standard
   :global t
   :group 'eglot-multi-preset
   :lighter " EgMP"
-  (if eglot-multi-preset-mode
-      (progn
-        ;; Save current default and set our lookup function
-        (setq eglot-multi-preset--saved-workspace-configuration
-              (default-value 'eglot-workspace-configuration))
+  (let ((already-enabled
+         (advice-member-p #'eglot-multi-preset--maybe-select-preset 'eglot)))
+    (if eglot-multi-preset-mode
+        (progn
+          ;; Capture original default only once per activation cycle.
+          (unless already-enabled
+            (setq eglot-multi-preset--saved-workspace-configuration
+                  (default-value 'eglot-workspace-configuration))
+            (advice-add 'eglot :around #'eglot-multi-preset--maybe-select-preset))
+          (setq-default eglot-workspace-configuration
+                        #'eglot-multi-preset--workspace-configuration-function))
+      ;; Restore original default and remove advice when active.
+      (when already-enabled
         (setq-default eglot-workspace-configuration
-                      #'eglot-multi-preset--workspace-configuration-function)
-        (advice-add 'eglot :around #'eglot-multi-preset--maybe-select-preset))
-    ;; Restore original default and remove advice
-    (setq-default eglot-workspace-configuration
-                  eglot-multi-preset--saved-workspace-configuration)
-    (clrhash eglot-multi-preset--project-workspace-configs)
-    (advice-remove 'eglot #'eglot-multi-preset--maybe-select-preset)))
+                      eglot-multi-preset--saved-workspace-configuration)
+        (clrhash eglot-multi-preset--project-workspace-configs)
+        (advice-remove 'eglot #'eglot-multi-preset--maybe-select-preset))
+      (setq eglot-multi-preset--saved-workspace-configuration nil))))
 
 ;;; Programmatic API
 
