@@ -421,9 +421,23 @@ unavailable."
       major-mode))
 
 (defun eglot-multi-preset--guess-contact ()
-  "Guess Eglot contact for the current buffer, if available."
+  "Guess Eglot contact for the current buffer, if available.
+Handles modern `eglot--guess-contact' return values of the form
+\(MANAGED-MODES PROJECT CLASS CONTACT LANGUAGE-IDS) and older forms
+that returned CONTACT directly."
   (when (fboundp 'eglot--guess-contact)
-    (ignore-errors (eglot--guess-contact nil))))
+    (let ((guess (ignore-errors (eglot--guess-contact nil))))
+      (cond
+       ;; Emacs 30+ returns a full argument tuple for `eglot'.
+       ((and (listp guess)
+             (>= (length guess) 4)
+             (listp (car guess))
+             (symbolp (nth 2 guess)))
+        (nth 3 guess))
+       ;; Older versions may return CONTACT directly.
+       ((listp guess)
+        guess)
+       (t nil)))))
 
 (defun eglot-multi-preset--server-mode-spec (mode)
   "Build eglot server mode spec for MODE with optional language-id override."

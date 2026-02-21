@@ -288,6 +288,26 @@
       (should (equal (eglot-multi-preset--refresh-eglot-args-if-interactive args)
                      '(a ("rass" "python") c d e f t))))))
 
+(ert-deftest eglot-multi-preset-guess-contact-extracts-contact-from-arg-tuple ()
+  "Guess helper should extract CONTACT from modern eglot argument tuples."
+  (cl-letf (((symbol-function 'eglot--guess-contact)
+             (lambda (_interactive)
+               '((tsx-ts-mode)
+                 (vc nil "~/workspace/sample/")
+                 eglot-lsp-server
+                 ("rass" "--" "typescript-language-server" "--stdio")
+                 ("typescriptreact")))))
+    (should (equal (eglot-multi-preset--guess-contact)
+                   '("rass" "--" "typescript-language-server" "--stdio")))))
+
+(ert-deftest eglot-multi-preset-guess-contact-keeps-legacy-contact-shape ()
+  "Guess helper should keep legacy direct CONTACT return values."
+  (cl-letf (((symbol-function 'eglot--guess-contact)
+             (lambda (_interactive)
+               '("rass" "python"))))
+    (should (equal (eglot-multi-preset--guess-contact)
+                   '("rass" "python")))))
+
 (ert-deftest eglot-multi-preset-read-dir-locals-reports-parse-errors ()
   "Malformed .dir-locals content should emit an explanatory message."
   (let* ((tmp-dir (make-temp-file "eglot-multi-preset-tests-" t))
