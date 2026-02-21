@@ -123,6 +123,24 @@ Override LSP =languageId= per mode when needed:
           (typescript-ts-mode . "typescript")))
 #+end_src
 
+** =eglot-multi-preset-executable-overrides=
+
+Override executable names used by built-in presets.  Useful on Windows
+when your environment provides =rass.exe= instead of =rass.cmd=.
+
+#+begin_src emacs-lisp
+  (setq eglot-multi-preset-executable-overrides
+        '(("rass" . "rass.exe")
+          ("lspx" . "lspx.exe")))
+#+end_src
+
+If you change this after the package is already loaded, regenerate the
+built-in preset contacts:
+
+#+begin_src emacs-lisp
+  (eglot-multi-preset-reset-default-presets)
+#+end_src
+
 * Windows Support
 
 On Windows, Node.js CLI tools installed via npm are provided as =.cmd= batch files (e.g., =rass.cmd=, =lspx.cmd=, =typescript-language-server.cmd=). This package automatically detects Windows and appends the =.cmd= suffix to executable names in the default presets.

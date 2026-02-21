@@ -91,15 +91,35 @@
   (memq system-type '(windows-nt ms-dos))
   "Non-nil if running on Windows.")
 
+(defcustom eglot-multi-preset-executable-overrides nil
+  "Alist overriding executable names used by built-in presets.
+Keys are base executable names such as \"rass\" or \"lspx\".
+Values are concrete command names (or full paths) to use instead.
+
+When an override exists, it takes precedence over automatic Windows
+`.cmd' suffix handling."
+  :type '(alist :key-type string :value-type string)
+  :group 'eglot-multi-preset)
+
+(defun eglot-multi-preset--executable-override (name)
+  "Return override command for NAME, or nil if no override exists."
+  (let* ((base-name (replace-regexp-in-string "\\.\\(cmd\\|exe\\)\\'" "" name t t)))
+    (or (cdr (assoc-string name eglot-multi-preset-executable-overrides))
+        (cdr (assoc-string base-name eglot-multi-preset-executable-overrides)))))
+
 (defun eglot-multi-preset--executable-name (name)
-  "Return NAME with `.cmd' suffix on Windows if needed.
+  "Return executable command for NAME.
+Uses `eglot-multi-preset-executable-overrides' first.
+Otherwise, returns NAME with `.cmd' suffix on Windows if needed.
 On Windows, Node.js CLI tools installed via npm are provided as
 .cmd batch files.  This function adds the suffix automatically
 unless NAME already ends with `.cmd' or `.exe'."
-  (if (and eglot-multi-preset--windows-p
-           (not (string-match-p "\\.\\(cmd\\|exe\\)\\'" name)))
-      (concat name ".cmd")
-    name))
+  (if-let ((override (eglot-multi-preset--executable-override name)))
+      override
+    (if (and eglot-multi-preset--windows-p
+             (not (string-match-p "\\.\\(cmd\\|exe\\)\\'" name)))
+        (concat name ".cmd")
+      name)))
 
 (defconst eglot-multi-preset--eslint-workspace-config
   '(:eslint (:validate "probe"
@@ -790,6 +810,15 @@ The first option is always \"eglot default\" which uses the standard
     (advice-remove 'eglot #'eglot-multi-preset--maybe-select-preset)))
 
 ;;; Programmatic API
+
+;;;###autoload
+(defun eglot-multi-preset-reset-default-presets ()
+  "Reset `eglot-multi-preset-alist' to built-in defaults.
+This re-applies `eglot-multi-preset-executable-overrides' to the
+generated preset contacts."
+  (interactive)
+  (setq eglot-multi-preset-alist (eglot-multi-preset--make-default-alist))
+  (message "Reset eglot-multi-preset built-in presets"))
 
 ;;;###autoload
 (defun eglot-multi-preset-register (mode preset-name contact)
