@@ -136,6 +136,27 @@ built-in preset contacts:
   (eglot-multi-preset-reset-default-presets)
 #+end_src
 
+** =eglot-multi-preset-extra-alist=
+
+Add custom presets while keeping built-in defaults.
+This is merged into the built-ins, and when preset names collide your
+custom entry takes precedence.
+
+#+begin_src emacs-lisp
+  (setq eglot-multi-preset-extra-alist
+        '((python-mode
+           . (("rass: pyright + ty + ruff (strict)"
+               . ("rass" "--" "pyright-langserver" "--stdio"
+                  "--" "ty" "server"
+                  "--" "ruff" "server"))))))
+#+end_src
+
+If you change this after package load and want to rebuild immediately:
+
+#+begin_src emacs-lisp
+  (eglot-multi-preset-reset-default-presets)
+#+end_src
+
 ** =eglot-multi-preset-eslint-workspace-config=
 
 Override the workspace/configuration payload used for ESLint presets:
@@ -254,6 +275,18 @@ Register a new preset for a mode:
   (eglot-multi-preset-register 'vue-mode "rass: vue + tailwind"
                                '("rass" "--" "vue-language-server" "--stdio"
                                  "--" "tailwindcss-language-server" "--stdio"))
+#+end_src
+
+You can also pass =workspace-config= as the 4th argument:
+
+#+begin_src emacs-lisp
+  (eglot-multi-preset-register
+   'typescript-mode
+   "rass: ts-ls + eslint (custom ws)"
+   '("rass" "--" "typescript-language-server" "--stdio"
+     "--" "vscode-eslint-language-server" "--stdio")
+   '(:eslint (:validate "probe"
+              :workingDirectory (:mode "auto"))))
 #+end_src
 
 ** =eglot-multi-preset-unregister=

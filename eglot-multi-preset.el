@@ -200,10 +200,86 @@ lsp-tailwindcss sends a non-null `configuration' object at initialize time."
                ,(append eglot-multi-preset-eslint-workspace-config
                         eglot-multi-preset-tailwind-workspace-config))))))))
 
+(defvar eglot-multi-preset-extra-alist nil
+  "Additional presets merged into built-in defaults.")
+
+(defvar eglot-multi-preset-alist nil
+  "Effective mode-to-preset table used by selection logic.")
+
+(defun eglot-multi-preset--mode-spec-members (mode-spec)
+  "Return MODE-SPEC as a list of mode symbols."
+  (if (listp mode-spec)
+      mode-spec
+    (list mode-spec)))
+
+(defun eglot-multi-preset--find-mode-entry-in (mode mode-alist)
+  "Find first preset entry for MODE in MODE-ALIST.
+For symbols, this also matches grouped mode entries containing MODE."
+  (or (assoc mode mode-alist)
+      (when (symbolp mode)
+        (cl-find-if
+         (lambda (entry)
+           (memq mode
+                 (eglot-multi-preset--mode-spec-members (car entry))))
+         mode-alist))))
+
+(defun eglot-multi-preset--merge-preset-lists (base extra)
+  "Merge EXTRA presets into BASE presets by preset name.
+When a preset name exists in both, EXTRA overrides BASE."
+  (let ((result (copy-tree (or base '()))))
+    (dolist (preset extra)
+      (let ((existing (assoc (car preset) result)))
+        (if existing
+            (setcdr existing (copy-tree (cdr preset)))
+          (setq result (append result (list (copy-tree preset)))))))
+    result))
+
+(defun eglot-multi-preset--merge-mode-preset-alists (base extra)
+  "Merge EXTRA mode entries into BASE mode entries.
+When EXTRA mode key is a symbol matching a grouped BASE entry, merge into
+that grouped entry.  For duplicate preset names, EXTRA overrides BASE."
+  (let ((result (copy-tree (or base '()))))
+    (dolist (entry extra)
+      (let* ((mode-spec (car entry))
+             (presets (cdr entry))
+             (existing (if (symbolp mode-spec)
+                           (eglot-multi-preset--find-mode-entry-in mode-spec result)
+                         (assoc mode-spec result))))
+        (if existing
+            (setcdr existing
+                    (eglot-multi-preset--merge-preset-lists (cdr existing) presets))
+          (setq result (append result (list (copy-tree entry)))))))
+    result))
+
+(defun eglot-multi-preset--compose-default-presets ()
+  "Return built-in presets merged with `eglot-multi-preset-extra-alist'."
+  (eglot-multi-preset--merge-mode-preset-alists
+   (eglot-multi-preset--make-default-alist)
+   eglot-multi-preset-extra-alist))
+
+(defun eglot-multi-preset--set-extra-alist (symbol value)
+  "Set SYMBOL to VALUE and rebuild `eglot-multi-preset-alist'."
+  (set-default symbol value)
+  (setq eglot-multi-preset-alist
+        (eglot-multi-preset--compose-default-presets)))
+
 ;;; Core data structure
 
+(defcustom eglot-multi-preset-extra-alist nil
+  "Additional preset entries merged into built-in defaults.
+This is useful when you want to keep package defaults but add project- or
+team-specific server combinations without replacing the whole preset table.
+
+When a mode key is a symbol and matches a grouped built-in entry (such as
+`python-mode' in `(python-mode python-ts-mode)'), presets are merged
+into that group.  If preset names collide, extra entries override built-ins."
+  :type '(alist :key-type (choice symbol (repeat symbol))
+                :value-type (alist :key-type string :value-type sexp))
+  :set #'eglot-multi-preset--set-extra-alist
+  :group 'eglot-multi-preset)
+
 (defcustom eglot-multi-preset-alist
-  (eglot-multi-preset--make-default-alist)
+  (eglot-multi-preset--compose-default-presets)
   "Alist mapping major modes to their LSP server presets.
 Each entry is (MODE-OR-MODES . PRESETS) where:
 
@@ -219,7 +295,10 @@ Note: Single-server configurations should use `eglot-server-programs'
 directly.  This package is for multi-server configurations using
 LSP multiplexers like rass (rassumfrassum).
 
-The default value includes:
+By default, this value is built from built-ins plus
+`eglot-multi-preset-extra-alist'.
+
+Built-in defaults include:
   - Python: rass presets with ty + ruff, pyright + ruff,
     and pyright + ty + ruff
   - TypeScript/JS: rass presets with ts-ls + eslint, and ts-ls + eslint + tailwind"
@@ -822,39 +901,53 @@ The first option is always \"eglot default\" which uses the standard
 
 ;;;###autoload
 (defun eglot-multi-preset-reset-default-presets ()
-  "Reset `eglot-multi-preset-alist' to built-in defaults.
+  "Reset `eglot-multi-preset-alist' to built-in defaults plus extras.
 This re-applies executable and workspace customizations, including
 `eglot-multi-preset-executable-overrides',
 `eglot-multi-preset-eslint-workspace-config',
 `eglot-multi-preset-tailwind-workspace-config', and
-`eglot-multi-preset-tailwind-initialization-options'."
+`eglot-multi-preset-tailwind-initialization-options'.
+
+Also merges `eglot-multi-preset-extra-alist' into the rebuilt defaults."
   (interactive)
-  (setq eglot-multi-preset-alist (eglot-multi-preset--make-default-alist))
-  (message "Reset eglot-multi-preset built-in presets"))
+  (setq eglot-multi-preset-alist (eglot-multi-preset--compose-default-presets))
+  (message "Reset eglot-multi-preset presets (built-ins + extras)"))
 
 ;;;###autoload
-(defun eglot-multi-preset-register (mode preset-name contact)
+(defun eglot-multi-preset-register (mode preset-name contact &optional workspace-config)
   "Register a preset for MODE.
 MODE is a major mode symbol.
 PRESET-NAME is a string identifying the preset.
-CONTACT is a list (PROGRAM ARGS...) for eglot.
+CONTACT is either:
+  - A list (PROGRAM ARGS...) for eglot, or
+  - An extended plist (:contact ... :workspace-config ...).
+
+WORKSPACE-CONFIG is an optional convenience argument used when CONTACT is
+the legacy list form.  In that case, the preset is stored in extended
+format with :contact and :workspace-config keys.
 
 If MODE belongs to a grouped mode entry in
 `eglot-multi-preset-alist', that entry is updated.
 
 Example:
   (eglot-multi-preset-register \\='python-mode \"my-preset\" \\='(\"my-server\" \"--stdio\"))"
-  (let ((existing (eglot-multi-preset--find-mode-entry mode)))
+  (let* ((preset-value
+          (if (eglot-multi-preset--extended-format-p contact)
+              contact
+            (if workspace-config
+                (list :contact contact :workspace-config workspace-config)
+              contact)))
+         (existing (eglot-multi-preset--find-mode-entry mode)))
     (if existing
         ;; Mode already has presets - add or update
         (let ((presets (cdr existing)))
           (if (assoc preset-name presets)
               ;; Update existing preset
-              (setcdr (assoc preset-name presets) contact)
+              (setcdr (assoc preset-name presets) preset-value)
             ;; Add new preset
-            (setcdr existing (cons (cons preset-name contact) presets))))
+            (setcdr existing (cons (cons preset-name preset-value) presets))))
       ;; New mode entry
-      (push (cons mode (list (cons preset-name contact))) eglot-multi-preset-alist))))
+      (push (cons mode (list (cons preset-name preset-value))) eglot-multi-preset-alist))))
 
 ;;;###autoload
 (defun eglot-multi-preset-unregister (mode preset-name)
