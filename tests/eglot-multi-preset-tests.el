@@ -78,6 +78,43 @@
                     'tsx-ts-mode)
                    contact))))
 
+(ert-deftest eglot-multi-preset-register-rejects-default-label ()
+  "Registering a preset with the default-label name should fail."
+  (let* ((mode 'python-mode)
+         (before (copy-tree (eglot-multi-preset--lookup-mode-presets mode))))
+    (should-error
+     (eglot-multi-preset-register mode eglot-multi-preset-default-label '("rass" "python"))
+     :type 'user-error)
+    (should (equal (eglot-multi-preset--lookup-mode-presets mode) before))))
+
+(ert-deftest eglot-multi-preset-setopt-executable-overrides-rebuilds-defaults ()
+  "Changing executable overrides via setopt should rebuild built-in contacts."
+  (let ((original-overrides (copy-tree eglot-multi-preset-executable-overrides)))
+    (unwind-protect
+        (progn
+          (setopt eglot-multi-preset-executable-overrides
+                  '(("rass" . "eglot-multi-preset-rass-test")))
+          (let ((contact (eglot-multi-preset--get-contact "rass: ty + ruff"
+                                                          'python-mode)))
+            (should (equal (car contact) "eglot-multi-preset-rass-test"))))
+      (setopt eglot-multi-preset-executable-overrides original-overrides))))
+
+(ert-deftest eglot-multi-preset-setopt-eslint-config-rebuilds-defaults ()
+  "Changing ESLint workspace config via setopt should rebuild presets."
+  (let ((original-eslint-config (copy-tree eglot-multi-preset-eslint-workspace-config))
+        (new-eslint-config
+         '(:eslint (:validate "probe"
+                    :workingDirectory (:mode "auto")
+                    :workingDirectories [(:mode "auto")]
+                    :packageManager "pnpm"))))
+    (unwind-protect
+        (progn
+          (setopt eglot-multi-preset-eslint-workspace-config new-eslint-config)
+          (should (equal (eglot-multi-preset--get-workspace-config "rass: ts-ls + eslint"
+                                                                    'typescript-mode)
+                         new-eslint-config)))
+      (setopt eglot-multi-preset-eslint-workspace-config original-eslint-config))))
+
 (ert-deftest eglot-multi-preset-save-to-dir-locals-keeps-malformed-file ()
   "Saving a preset must not overwrite malformed existing .dir-locals.el."
   (let* ((tmp-dir (make-temp-file "eglot-multi-preset-tests-" t))

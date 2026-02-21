@@ -139,6 +139,8 @@ built-in preset contacts:
   (eglot-multi-preset-reset-default-presets)
 #+end_src
 
+*Tip:* if you use =setopt= (or Customize), built-ins are rebuilt automatically.
+
 ** =eglot-multi-preset-extra-alist=
 
 Add custom presets while keeping built-in defaults.
@@ -203,6 +205,8 @@ After changing any of the three settings above, regenerate built-in presets:
 #+begin_src emacs-lisp
   (eglot-multi-preset-reset-default-presets)
 #+end_src
+
+*Tip:* if you use =setopt= (or Customize), built-ins are rebuilt automatically.
 
 * Windows Support
 

@@ -85,6 +85,14 @@
   :group 'eglot
   :prefix "eglot-multi-preset-")
 
+(defun eglot-multi-preset--set-and-rebuild-default-presets (symbol value)
+  "Set SYMBOL to VALUE and rebuild preset defaults when available."
+  (set-default symbol value)
+  (when (and (boundp 'eglot-multi-preset-alist)
+             (fboundp 'eglot-multi-preset--compose-default-presets))
+    (setq eglot-multi-preset-alist
+          (eglot-multi-preset--compose-default-presets))))
+
 ;;; Windows compatibility helpers
 
 (defconst eglot-multi-preset--windows-p
@@ -97,8 +105,12 @@ Keys are base executable names such as \"rass\".
 Values are concrete command names (or full paths) to use instead.
 
 When an override exists, it takes precedence over automatic Windows
-`.cmd' suffix handling."
+`.cmd' suffix handling.
+
+When changed via Customize or `setopt', built-in presets are rebuilt
+automatically."
   :type '(alist :key-type string :value-type string)
+  :set #'eglot-multi-preset--set-and-rebuild-default-presets
   :group 'eglot-multi-preset)
 
 ;; Backward compatibility for callers that referenced previous internal vars.
@@ -137,8 +149,12 @@ unless NAME already ends with `.cmd' or `.exe'."
              :workingDirectories [(:mode "auto")]
              :packageManager "npm"))
   "Workspace configuration sent for ESLint presets.
-Based on lsp-mode defaults for vscode-eslint-language-server."
+Based on lsp-mode defaults for vscode-eslint-language-server.
+
+When changed via Customize or `setopt', built-in presets are rebuilt
+automatically."
   :type 'sexp
+  :set #'eglot-multi-preset--set-and-rebuild-default-presets
   :group 'eglot-multi-preset)
 
 (defcustom eglot-multi-preset-tailwind-workspace-config
@@ -151,8 +167,12 @@ Based on lsp-mode defaults for vscode-eslint-language-server."
                   :codeActions t
                   :classAttributes ["class" "className" "ngClass" "class:list"]))
   "Workspace configuration sent for Tailwind CSS presets.
-Mirrors the baseline settings from lsp-tailwindcss."
+Mirrors the baseline settings from lsp-tailwindcss.
+
+When changed via Customize or `setopt', built-in presets are rebuilt
+automatically."
   :type 'sexp
+  :set #'eglot-multi-preset--set-and-rebuild-default-presets
   :group 'eglot-multi-preset)
 
 (defcustom eglot-multi-preset-tailwind-initialization-options
@@ -165,8 +185,12 @@ Mirrors the baseline settings from lsp-tailwindcss."
                      :codeActions t
                      :classAttributes ["class" "className" "ngClass" "class:list"])))
   "Initialization options sent for Tailwind CSS presets.
-lsp-tailwindcss sends a non-null `configuration' object at initialize time."
+lsp-tailwindcss sends a non-null `configuration' object at initialize time.
+
+When changed via Customize or `setopt', built-in presets are rebuilt
+automatically."
   :type 'sexp
+  :set #'eglot-multi-preset--set-and-rebuild-default-presets
   :group 'eglot-multi-preset)
 
 (defun eglot-multi-preset--make-default-alist ()
@@ -261,9 +285,7 @@ that grouped entry.  For duplicate preset names, EXTRA overrides BASE."
 
 (defun eglot-multi-preset--set-extra-alist (symbol value)
   "Set SYMBOL to VALUE and rebuild `eglot-multi-preset-alist'."
-  (set-default symbol value)
-  (setq eglot-multi-preset-alist
-        (eglot-multi-preset--compose-default-presets)))
+  (eglot-multi-preset--set-and-rebuild-default-presets symbol value))
 
 ;;; Core data structure
 
@@ -1087,6 +1109,8 @@ If MODE belongs to a grouped mode entry in
 Example:
   (eglot-multi-preset-register
    \\='python-mode \"my-preset\" \\='(\"my-server\" \"--stdio\"))"
+  (when (string= preset-name eglot-multi-preset-default-label)
+    (user-error "Preset name %S is reserved for the default option" preset-name))
   (let* ((preset-value
           (if (eglot-multi-preset--extended-format-p contact)
               contact
