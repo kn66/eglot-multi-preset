@@ -123,6 +123,40 @@
             (should (equal saved-workspace workspace-config))))
       (ignore-errors (delete-directory tmp-dir t)))))
 
+(ert-deftest eglot-multi-preset-save-to-dir-locals-preserves-unrelated-server-programs ()
+  "Saving a preset should only replace target mode entries in server programs."
+  (let* ((tmp-dir (make-temp-file "eglot-multi-preset-tests-" t))
+         (dir-locals-file (expand-file-name ".dir-locals.el" tmp-dir))
+         (initial-content
+          '((python-mode
+             . ((eglot-server-programs
+                 . (((python-mode) . ("old-python"))
+                    ((sh-mode) . ("bash-language-server" "start"))))
+                (fill-column . 90))))))
+    (unwind-protect
+        (progn
+          (with-temp-file dir-locals-file
+            (insert ";;; Directory Local Variables -*- no-byte-compile: t -*-\n")
+            (insert ";;; For more information see (info \"(emacs) Directory Variables\")\n\n")
+            (pp initial-content (current-buffer)))
+          (should
+           (eglot-multi-preset--save-to-dir-locals
+            '("rass" "python") nil tmp-dir 'python-mode))
+          (let* ((saved (eglot-multi-preset-tests--read-form dir-locals-file))
+                 (python-entry (assq 'python-mode saved))
+                 (python-ts-entry (assq 'python-ts-mode saved))
+                 (saved-server-programs
+                  (cdr (assq 'eglot-server-programs (cdr python-entry))))
+                 (python-ts-server-programs
+                  (cdr (assq 'eglot-server-programs (cdr python-ts-entry)))))
+            (should (equal saved-server-programs
+                           '(((python-mode) . ("rass" "python"))
+                             ((sh-mode) . ("bash-language-server" "start")))))
+            (should (equal (cdr (assq 'fill-column (cdr python-entry))) 90))
+            (should (equal python-ts-server-programs
+                           '(((python-ts-mode) . ("rass" "python")))))))
+      (ignore-errors (delete-directory tmp-dir t)))))
+
 (ert-deftest eglot-multi-preset-refresh-eglot-args-falls-back-when-guess-missing ()
   "Interactive arg refresh should keep ARGS when contact guess is unavailable."
   (let ((args '(nil nil nil nil nil t)))
@@ -187,6 +221,35 @@
                 (major-mode 'python-mode))
             (should-error (eglot-multi-preset-clear-dir-locals)
                           :type 'user-error)))
+      (ignore-errors (delete-directory tmp-dir t)))))
+
+(ert-deftest eglot-multi-preset-clear-dir-locals-preserves-unrelated-server-programs ()
+  "Clearing presets should keep non-target server-program entries."
+  (let* ((tmp-dir (make-temp-file "eglot-multi-preset-tests-" t))
+         (dir-locals-file (expand-file-name ".dir-locals.el" tmp-dir))
+         (initial-content
+          '((python-mode
+             . ((eglot-server-programs
+                 . (((python-mode) . ("rass" "python"))
+                    ((sh-mode) . ("bash-language-server" "start"))))
+                (fill-column . 90))))))
+    (unwind-protect
+        (progn
+          (with-temp-file dir-locals-file
+            (insert ";;; Directory Local Variables -*- no-byte-compile: t -*-\n")
+            (insert ";;; For more information see (info \"(emacs) Directory Variables\")\n\n")
+            (pp initial-content (current-buffer)))
+          (let ((eglot-multi-preset-dir-locals-directory tmp-dir)
+                (default-directory tmp-dir)
+                (major-mode 'python-mode))
+            (eglot-multi-preset-clear-dir-locals))
+          (let* ((saved (eglot-multi-preset-tests--read-form dir-locals-file))
+                 (python-entry (assq 'python-mode saved))
+                 (saved-server-programs
+                  (cdr (assq 'eglot-server-programs (cdr python-entry)))))
+            (should (equal saved-server-programs
+                           '(((sh-mode) . ("bash-language-server" "start")))))
+            (should (equal (cdr (assq 'fill-column (cdr python-entry))) 90))))
       (ignore-errors (delete-directory tmp-dir t)))))
 
 (provide 'eglot-multi-preset-tests)

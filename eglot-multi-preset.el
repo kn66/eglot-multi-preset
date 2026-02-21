@@ -651,18 +651,30 @@ Returns non-nil on success, nil on failure."
                   ;; Find or create mode entries for all related modes.
                   (dolist (target-mode target-modes)
                     (let* ((mode-entry (assq target-mode content))
-                           (server-entry
-                            (list (cons (eglot-multi-preset--server-mode-spec target-mode)
-                                        contact))))
+                           (server-spec (eglot-multi-preset--server-mode-spec target-mode))
+                           (server-entry (cons server-spec contact)))
                       (if mode-entry
                           ;; Update existing mode entry
                           (progn
                             ;; Update eglot-server-programs
                             (let ((var-entry (assq 'eglot-server-programs (cdr mode-entry))))
                               (if var-entry
-                                  (setcdr var-entry server-entry)
+                                  (let* ((existing-server-programs (cdr var-entry))
+                                         (filtered-server-programs
+                                          (if (listp existing-server-programs)
+                                              (cl-remove-if
+                                               (lambda (entry)
+                                                 (eglot-multi-preset--server-program-mode-matches-p
+                                                  target-mode
+                                                  (car-safe entry)))
+                                               existing-server-programs)
+                                            nil)))
+                                    ;; Replace only TARGET-MODE while preserving other
+                                    ;; server-program entries in the same mode block.
+                                    (setcdr var-entry
+                                            (cons server-entry filtered-server-programs)))
                                 (setcdr mode-entry
-                                        (cons (cons 'eglot-server-programs server-entry)
+                                        (cons (cons 'eglot-server-programs (list server-entry))
                                               (cdr mode-entry)))))
                             ;; Update eglot-workspace-configuration if provided
                             (let ((ws-entry (assq 'eglot-workspace-configuration (cdr mode-entry))))
@@ -676,7 +688,8 @@ Returns non-nil on success, nil on failure."
                                 ;; the selected preset provides an explicit value.
                                 nil)))
                         ;; Add new mode entry
-                        (let ((new-entry (list (cons 'eglot-server-programs server-entry))))
+                        (let ((new-entry
+                               (list (cons 'eglot-server-programs (list server-entry)))))
                           (when workspace-config
                             (push (cons 'eglot-workspace-configuration workspace-config) new-entry))
                           (setq content (cons (cons target-mode new-entry) content))))))
@@ -1135,10 +1148,24 @@ for the current mode and related modes in the same preset group."
                     (let ((cleared-count 0))
                       (dolist (mode target-modes)
                         (when-let ((mode-entry (assq mode content)))
-                          (setcdr mode-entry
-                                  (assq-delete-all
-                                   'eglot-server-programs
-                                   (cdr mode-entry)))
+                          (when-let ((server-var-entry
+                                      (assq 'eglot-server-programs (cdr mode-entry))))
+                            (let* ((existing-server-programs (cdr server-var-entry))
+                                   (remaining-server-programs
+                                    (if (listp existing-server-programs)
+                                        (cl-remove-if
+                                         (lambda (entry)
+                                           (eglot-multi-preset--server-program-mode-matches-p
+                                            mode
+                                            (car-safe entry)))
+                                         existing-server-programs)
+                                      nil)))
+                              (if remaining-server-programs
+                                  (setcdr server-var-entry remaining-server-programs)
+                                (setcdr mode-entry
+                                        (assq-delete-all
+                                         'eglot-server-programs
+                                         (cdr mode-entry))))))
                           (setcdr mode-entry
                                   (assq-delete-all
                                    'eglot-workspace-configuration
