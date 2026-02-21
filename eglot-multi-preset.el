@@ -557,9 +557,13 @@ Returns the parsed alist, or nil if file doesn't exist or can't be parsed."
       (with-temp-buffer
         (insert-file-contents dir-locals-file)
         (goto-char (point-min))
-        (condition-case nil
+        (condition-case err
             (eglot-multi-preset--safe-read (current-buffer))
-          (error nil))))))
+          (error
+           (message "Ignoring malformed %s: %s"
+                    dir-locals-file
+                    (error-message-string err))
+           nil))))))
 
 (defun eglot-multi-preset--safe-read (buffer)
   "Read one Lisp form from BUFFER with read-time evaluation disabled."
@@ -853,18 +857,65 @@ workspace-configuration function when eglot requests it."
   "Non-nil when preset selection is in progress.
 Used to prevent recursive advice calls.")
 
+(defun eglot-multi-preset--function-arg-index (function argument)
+  "Return zero-based index of ARGUMENT in FUNCTION argument list.
+Returns nil if the argument list is unavailable or ARGUMENT is not present."
+  (let ((arglist (help-function-arglist function t))
+        (index 0)
+        (result nil))
+    (when (listp arglist)
+      (catch 'done
+        (dolist (arg arglist)
+          (cond
+           ((memq arg '(&optional &rest)))
+           ((eq arg argument)
+            (setq result index)
+            (throw 'done result))
+           (t
+            (setq index (1+ index)))))))
+    result))
+
+(defun eglot-multi-preset--eglot-contact-arg-index ()
+  "Return index of `contact' argument in `eglot'."
+  (or (eglot-multi-preset--function-arg-index #'eglot 'contact)
+      3))
+
+(defun eglot-multi-preset--eglot-interactive-arg-index ()
+  "Return index of `interactive' argument in `eglot'."
+  (or (eglot-multi-preset--function-arg-index #'eglot 'interactive)
+      5))
+
+(defun eglot-multi-preset--args-get (args index)
+  "Return element at INDEX from ARGS, or nil if out of range."
+  (when (and (listp args)
+             (natnump index)
+             (< index (length args)))
+    (nth index args)))
+
+(defun eglot-multi-preset--args-put (args index value)
+  "Return copy of ARGS with VALUE written at INDEX.
+Pads with nil values when INDEX is outside the current list length."
+  (let ((result (copy-sequence (or args '()))))
+    (while (<= (length result) index)
+      (setq result (append result '(nil))))
+    (setcar (nthcdr index result) value)
+    result))
+
 (defun eglot-multi-preset--refresh-eglot-args-if-interactive (args)
   "Refresh eglot ARGS for interactive calls after preset injection.
 When this advice changes `eglot-server-programs' dynamically, ARGS may
 still point to contacts guessed before the change.  Re-guess in that
 case so `eglot' starts the intended server contact."
-  (if (and (listp args)
-           (>= (length args) 6)
-           (nth 5 args))
+  (let ((interactive-index (eglot-multi-preset--eglot-interactive-arg-index))
+        (contact-index (eglot-multi-preset--eglot-contact-arg-index)))
+    (if (eglot-multi-preset--args-get args interactive-index)
       (if-let ((contact (eglot-multi-preset--guess-contact)))
-          (append contact (list t))
+          (eglot-multi-preset--args-put
+           (eglot-multi-preset--args-put args contact-index contact)
+           interactive-index
+           t)
         args)
-    args))
+      args)))
 
 (defun eglot-multi-preset--maybe-select-preset (orig-fun &rest args)
   "Advice for `eglot' to prompt for preset selection.
@@ -885,7 +936,10 @@ With prefix argument, force preset selection even if dir-locals exists."
      ((and existing-config (not force-selection))
       (message "Using eglot preset from .dir-locals.el")
       (let* ((workspace-config (eglot-multi-preset--dir-locals-get-workspace-config))
-             (contact-from-args (nth 3 args))
+             (contact-from-args
+              (eglot-multi-preset--args-get
+               args
+               (eglot-multi-preset--eglot-contact-arg-index)))
              (saved-contact (eglot-multi-preset--contact-from-server-programs
                              existing-config major-mode))
              (contact
@@ -1046,43 +1100,51 @@ for the current mode and related modes in the same preset group."
         (dir-locals-file (eglot-multi-preset--dir-locals-file)))
     (if (not (file-exists-p dir-locals-file))
         (message "No .dir-locals.el found at %s" dir-locals-file)
-      (let ((existing-buffer (get-file-buffer dir-locals-file)))
-        (with-current-buffer (find-file-noselect dir-locals-file)
-          (goto-char (point-min))
-          (let ((content (condition-case nil
-                             (eglot-multi-preset--safe-read (current-buffer))
-                           (error nil))))
-            (when content
-              (let ((cleared-count 0))
-                (dolist (mode target-modes)
-                  (when-let ((mode-entry (assq mode content)))
-                    (setcdr mode-entry
-                            (assq-delete-all
-                             'eglot-server-programs
-                             (cdr mode-entry)))
-                    (setcdr mode-entry
-                            (assq-delete-all
-                             'eglot-workspace-configuration
-                             (cdr mode-entry)))
-                    (unless (cdr mode-entry)
-                      (setq content (assq-delete-all mode content)))
-                    (setq cleared-count (1+ cleared-count))))
-                (if (zerop cleared-count)
-                    (message "No eglot preset found for %s in .dir-locals.el"
-                             target-mode)
-                  ;; Write back
-                  (erase-buffer)
-                  (insert ";;; Directory Local Variables -*- no-byte-compile: t -*-\n")
-                  (insert ";;; For more information see (info \"(emacs) Directory Variables\")\n\n")
-                  (if content
-                      (pp content (current-buffer))
-                    (insert "()\n"))
-                  (save-buffer)
-                  (message "Cleared eglot preset for %s mode(s) from %s"
-                           (mapconcat #'symbol-name target-modes ", ")
-                           dir-locals-file)))))
-          (unless existing-buffer
-            (kill-buffer (get-file-buffer dir-locals-file))))))))
+      (let ((existing-buffer (get-file-buffer dir-locals-file))
+            (opened-buffer nil))
+        (unwind-protect
+            (progn
+              (setq opened-buffer (find-file-noselect dir-locals-file))
+              (with-current-buffer opened-buffer
+                (goto-char (point-min))
+                (let ((content
+                       (condition-case err
+                           (eglot-multi-preset--safe-read (current-buffer))
+                         (error
+                          (user-error "Failed to parse %s: %s"
+                                      dir-locals-file
+                                      (error-message-string err))))))
+                  (when content
+                    (let ((cleared-count 0))
+                      (dolist (mode target-modes)
+                        (when-let ((mode-entry (assq mode content)))
+                          (setcdr mode-entry
+                                  (assq-delete-all
+                                   'eglot-server-programs
+                                   (cdr mode-entry)))
+                          (setcdr mode-entry
+                                  (assq-delete-all
+                                   'eglot-workspace-configuration
+                                   (cdr mode-entry)))
+                          (unless (cdr mode-entry)
+                            (setq content (assq-delete-all mode content)))
+                          (setq cleared-count (1+ cleared-count))))
+                      (if (zerop cleared-count)
+                          (message "No eglot preset found for %s in .dir-locals.el"
+                                   target-mode)
+                        ;; Write back
+                        (erase-buffer)
+                        (insert ";;; Directory Local Variables -*- no-byte-compile: t -*-\n")
+                        (insert ";;; For more information see (info \"(emacs) Directory Variables\")\n\n")
+                        (if content
+                            (pp content (current-buffer))
+                          (insert "()\n"))
+                        (save-buffer)
+                        (message "Cleared eglot preset for %s mode(s) from %s"
+                                 (mapconcat #'symbol-name target-modes ", ")
+                                 dir-locals-file)))))))
+          (when (and opened-buffer (not existing-buffer))
+            (kill-buffer opened-buffer)))))))
 
 (provide 'eglot-multi-preset)
 ;;; eglot-multi-preset.el ends here

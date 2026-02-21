@@ -119,7 +119,57 @@
     (cl-letf (((symbol-function 'eglot-multi-preset--guess-contact)
                (lambda () '("rass" "--" "server" "--stdio"))))
       (should (equal (eglot-multi-preset--refresh-eglot-args-if-interactive args)
-                     '("rass" "--" "server" "--stdio" t))))))
+                     '(old-a old-b old-c
+                       ("rass" "--" "server" "--stdio")
+                       old-e t))))))
+
+(ert-deftest eglot-multi-preset-refresh-eglot-args-respects-dynamic-indexes ()
+  "Interactive arg refresh should respect resolved eglot argument indexes."
+  (let ((args '(a b c d e f g)))
+    (cl-letf (((symbol-function 'eglot-multi-preset--eglot-contact-arg-index)
+               (lambda () 1))
+              ((symbol-function 'eglot-multi-preset--eglot-interactive-arg-index)
+               (lambda () 6))
+              ((symbol-function 'eglot-multi-preset--guess-contact)
+               (lambda () '("rass" "python"))))
+      (should (equal (eglot-multi-preset--refresh-eglot-args-if-interactive args)
+                     '(a ("rass" "python") c d e f t))))))
+
+(ert-deftest eglot-multi-preset-read-dir-locals-reports-parse-errors ()
+  "Malformed .dir-locals content should emit an explanatory message."
+  (let* ((tmp-dir (make-temp-file "eglot-multi-preset-tests-" t))
+         (dir-locals-file (expand-file-name ".dir-locals.el" tmp-dir))
+         (messages nil))
+    (unwind-protect
+        (progn
+          (with-temp-file dir-locals-file
+            (insert "((python-mode . (\n"))
+          (let ((eglot-multi-preset-dir-locals-directory tmp-dir)
+                (default-directory tmp-dir))
+            (cl-letf (((symbol-function 'message)
+                       (lambda (fmt &rest args)
+                         (push (apply #'format fmt args) messages))))
+              (should-not (eglot-multi-preset--read-dir-locals))
+              (should (cl-some
+                       (lambda (msg)
+                         (string-match-p "Ignoring malformed .*\\.dir-locals\\.el" msg))
+                       messages)))))
+      (ignore-errors (delete-directory tmp-dir t)))))
+
+(ert-deftest eglot-multi-preset-clear-dir-locals-errors-on-malformed-file ()
+  "Clearing presets should fail loudly for malformed .dir-locals files."
+  (let* ((tmp-dir (make-temp-file "eglot-multi-preset-tests-" t))
+         (dir-locals-file (expand-file-name ".dir-locals.el" tmp-dir)))
+    (unwind-protect
+        (progn
+          (with-temp-file dir-locals-file
+            (insert "((python-mode . (\n"))
+          (let ((eglot-multi-preset-dir-locals-directory tmp-dir)
+                (default-directory tmp-dir)
+                (major-mode 'python-mode))
+            (should-error (eglot-multi-preset-clear-dir-locals)
+                          :type 'user-error)))
+      (ignore-errors (delete-directory tmp-dir t)))))
 
 (provide 'eglot-multi-preset-tests)
 ;;; eglot-multi-preset-tests.el ends here
