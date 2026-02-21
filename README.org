@@ -79,7 +79,10 @@ Alist mapping major modes to their LSP server presets. Each entry is =(MODE-OR-M
         '(((python-mode python-ts-mode)
            . (("rass: ty + ruff" . ("rass" "python"))
               ("rass: pyright + ruff" . ("rass" "--" "pyright-langserver" "--stdio"
-                                         "--" "ruff" "server"))))
+                                         "--" "ruff" "server"))
+              ("rass: pyright + ty + ruff" . ("rass" "--" "pyright-langserver" "--stdio"
+                                              "--" "ty" "server"
+                                              "--" "ruff" "server"))))
           ((typescript-mode typescript-ts-mode)
            . (("rass: ts-ls + eslint"
                . ("rass" "--" "typescript-language-server" "--stdio"
@@ -200,6 +203,7 @@ The package includes these default presets:
 |----------------------+----------------------------------------------|
 | rass: ty + ruff      | ty (type checker) + ruff (linter/formatter)  |
 | rass: pyright + ruff | pyright-langserver + ruff server             |
+| rass: pyright + ty + ruff | pyright-langserver + ty server + ruff server |
 
 ** TypeScript/JavaScript
 

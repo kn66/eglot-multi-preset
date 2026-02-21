@@ -179,6 +179,10 @@ lsp-tailwindcss sends a non-null `configuration' object at initialize time."
        . (("rass: ty + ruff" . (,rass "python"))
           ("rass: pyright + ruff"
            . (,rass "--" ,pyright "--stdio"
+                    "--" "ruff" "server"))
+          ("rass: pyright + ty + ruff"
+           . (,rass "--" ,pyright "--stdio"
+                    "--" "ty" "server"
                     "--" "ruff" "server"))))
       ;; TypeScript/JavaScript: rass presets for multi-server configurations
       ((typescript-mode typescript-ts-mode typescript-tsx-mode tsx-ts-mode js-mode js-ts-mode)
@@ -216,7 +220,8 @@ directly.  This package is for multi-server configurations using
 LSP multiplexers like rass (rassumfrassum).
 
 The default value includes:
-  - Python: rass presets with ty + ruff, and pyright + ruff
+  - Python: rass presets with ty + ruff, pyright + ruff,
+    and pyright + ty + ruff
   - TypeScript/JS: rass presets with ts-ls + eslint, and ts-ls + eslint + tailwind"
   :type '(alist :key-type (choice symbol (repeat symbol))
                 :value-type (alist :key-type string :value-type sexp))
