@@ -32,15 +32,15 @@
 
 ;; eglot-multi-preset provides a mechanism for selecting LSP server presets
 ;; when starting eglot.  This is particularly useful when working with
-;; LSP multiplexers like rassumfrassum (rass) or lspx where different
+;; LSP multiplexers like rassumfrassum (rass) where different
 ;; projects may require different server combinations.
 ;;
 ;; This package is designed for MULTI-SERVER configurations only.
 ;; Single-server setups should use `eglot-server-programs' directly.
 ;;
 ;; Default presets included:
-;;   - Python: "rass: ..." and "lspx: ..."
-;;   - TypeScript/JS: "rass: ..." and "lspx: ..."
+;;   - Python: "rass: ..."
+;;   - TypeScript/JS: "rass: ..."
 ;;
 ;; Usage:
 ;;
@@ -93,7 +93,7 @@
 
 (defcustom eglot-multi-preset-executable-overrides nil
   "Alist overriding executable names used by built-in presets.
-Keys are base executable names such as \"rass\" or \"lspx\".
+Keys are base executable names such as \"rass\".
 Values are concrete command names (or full paths) to use instead.
 
 When an override exists, it takes precedence over automatic Windows
@@ -170,24 +170,17 @@ lsp-tailwindcss sends a non-null `configuration' object at initialize time."
 (defun eglot-multi-preset--make-default-alist ()
   "Generate the default preset alist with platform-appropriate executable names."
   (let ((rass (eglot-multi-preset--executable-name "rass"))
-        (lspx (eglot-multi-preset--executable-name "lspx"))
         (pyright (eglot-multi-preset--executable-name "pyright-langserver"))
         (ts-ls (eglot-multi-preset--executable-name "typescript-language-server"))
         (eslint (eglot-multi-preset--executable-name "vscode-eslint-language-server"))
         (tailwind (eglot-multi-preset--executable-name "tailwindcss-language-server")))
-    `(;; Python: rass/lspx presets combining type checker + ruff
+    `(;; Python: rass presets combining type checker + ruff
       ((python-mode python-ts-mode)
        . (("rass: ty + ruff" . (,rass "python"))
           ("rass: pyright + ruff"
            . (,rass "--" ,pyright "--stdio"
-                    "--" "ruff" "server"))
-          ("lspx: ty + ruff"
-           . (,lspx "--lsp" "ty server"
-                    "--lsp" "ruff server"))
-          ("lspx: pyright + ruff"
-           . (,lspx "--lsp" ,(format "%s --stdio" pyright)
-                    "--lsp" "ruff server"))))
-      ;; TypeScript/JavaScript: rass/lspx presets for multi-server configurations
+                    "--" "ruff" "server"))))
+      ;; TypeScript/JavaScript: rass presets for multi-server configurations
       ((typescript-mode typescript-ts-mode typescript-tsx-mode tsx-ts-mode js-mode js-ts-mode)
        . (("rass: ts-ls + eslint"
            . ( :contact (,rass "--" ,ts-ls "--stdio"
@@ -197,19 +190,6 @@ lsp-tailwindcss sends a non-null `configuration' object at initialize time."
            . ( :contact (,rass "--" ,ts-ls "--stdio"
                                "--" ,eslint "--stdio"
                                "--" ,tailwind "--stdio"
-                               :initializationOptions
-                               ,eglot-multi-preset-tailwind-initialization-options)
-               :workspace-config
-               ,(append eglot-multi-preset-eslint-workspace-config
-                        eglot-multi-preset-tailwind-workspace-config)))
-          ("lspx: ts-ls + eslint"
-           . ( :contact (,lspx "--lsp" ,(format "%s --stdio" ts-ls)
-                               "--lsp" ,(format "%s --stdio" eslint))
-               :workspace-config ,eglot-multi-preset-eslint-workspace-config))
-          ("lspx: ts-ls + eslint + tailwind"
-           . ( :contact (,lspx "--lsp" ,(format "%s --stdio" ts-ls)
-                               "--lsp" ,(format "%s --stdio" eslint)
-                               "--lsp" ,(format "%s --stdio" tailwind)
                                :initializationOptions
                                ,eglot-multi-preset-tailwind-initialization-options)
                :workspace-config
@@ -233,11 +213,11 @@ PRESETS is a list of (PRESET-NAME . CONTACT) pairs where:
 
 Note: Single-server configurations should use `eglot-server-programs'
 directly.  This package is for multi-server configurations using
-LSP multiplexers like rass (rassumfrassum) and lspx.
+LSP multiplexers like rass (rassumfrassum).
 
 The default value includes:
-  - Python: rass/lspx presets with ty + ruff, and pyright + ruff
-  - TypeScript/JS: rass/lspx presets with ts-ls + eslint, and ts-ls + eslint + tailwind"
+  - Python: rass presets with ty + ruff, and pyright + ruff
+  - TypeScript/JS: rass presets with ts-ls + eslint, and ts-ls + eslint + tailwind"
   :type '(alist :key-type (choice symbol (repeat symbol))
                 :value-type (alist :key-type string :value-type sexp))
   :group 'eglot-multi-preset)
@@ -284,6 +264,10 @@ understood by some language servers."
 Used to provide workspace configuration to eglot without requiring
 .dir-locals.el to be saved first.")
 
+(defconst eglot-multi-preset--empty-workspace-section-key
+  (intern "")
+  "Symbol key for workspace/configuration section \"\".")
+
 (defun eglot-multi-preset--normalize-project-root (root)
   "Normalize ROOT so it can be used as a stable hash-table key."
   (when root
@@ -306,9 +290,10 @@ Used to provide workspace configuration to eglot without requiring
 
 (defun eglot-multi-preset--workspace-section-name (section)
   "Convert SECTION key to a workspace/configuration section name string."
-  (if (keywordp section)
-      (substring (symbol-name section) 1)
-    section))
+  (cond
+   ((keywordp section) (substring (symbol-name section) 1))
+   ((symbolp section) (symbol-name section))
+   (t section)))
 
 (defun eglot-multi-preset--workspace-config-has-empty-section-p (config)
   "Return non-nil if CONFIG already defines the empty section key."
@@ -381,23 +366,29 @@ Otherwise return a copy of CONFIG."
 
 (defun eglot-multi-preset--workspace-config-with-empty-section (config)
   "Ensure CONFIG can satisfy workspace/configuration requests for section \"\"."
-  (let* ((has-empty (eglot-multi-preset--workspace-config-has-empty-section-p config))
-         (has-eslint (eglot-multi-preset--workspace-config-has-eslint-section-p config))
-         (base-config (if (and has-empty has-eslint)
-                          (eglot-multi-preset--workspace-config-remove-empty-section config)
-                        config))
-         (empty-section-value
-          (eglot-multi-preset--workspace-config-empty-section-value base-config)))
-    (cond
-     ((not (listp config)) config)
-     ;; Keep existing empty-section entries unless ESLint normalization is needed.
-     ((and has-empty (not has-eslint)) config)
-     ;; Alist: append (\"\" . VALUE)
-     ((consp (car-safe config))
-      (append base-config (list (cons "" empty-section-value))))
-     ;; Plist: append \"\" VALUE
-     (t
-      (append base-config (list "" empty-section-value))))))
+  (if (null config)
+      nil
+    (let* ((has-empty (eglot-multi-preset--workspace-config-has-empty-section-p config))
+           (has-eslint (eglot-multi-preset--workspace-config-has-eslint-section-p config))
+           (base-config (if (and has-empty has-eslint)
+                            (eglot-multi-preset--workspace-config-remove-empty-section config)
+                          config))
+           (empty-section-value
+            (eglot-multi-preset--workspace-config-empty-section-value base-config)))
+      (cond
+       ((not (listp config)) config)
+       ;; Keep existing empty-section entries unless ESLint normalization is needed.
+       ((and has-empty (not has-eslint)) config)
+       ;; Alist: append (\"\" . VALUE)
+       ((consp (car-safe config))
+        (append base-config
+                (list (cons eglot-multi-preset--empty-workspace-section-key
+                            empty-section-value))))
+       ;; Plist: append \"\" VALUE
+       (t
+        (append base-config
+                (list eglot-multi-preset--empty-workspace-section-key
+                      empty-section-value)))))))
 
 (defun eglot-multi-preset--workspace-configuration-function (server)
   "Return workspace configuration for SERVER.
@@ -628,8 +619,7 @@ Extended format has :contact key, legacy format is just a list."
   "Extract executable names from CONTACT when it is a command list.
 Supports multiplexed commands like:
   (\"rass\" \"--\" \"typescript-language-server\" \"--stdio\" ...)
-or
-  (\"lspx\" \"--lsp\" \"typescript-language-server --stdio\" ...)."
+."
   (when (and (listp contact) (stringp (car contact)))
     (let ((executables (list (car contact)))
           (rest (cdr contact)))

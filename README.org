@@ -5,7 +5,7 @@ Multi-server LSP preset selection for Eglot.
 
 * Overview
 
-=eglot-multi-preset= provides a mechanism for selecting LSP server presets when starting Eglot. This is particularly useful when working with LSP multiplexers like [[https://github.com/AshleyYakeley/rassumfrassum][rass (rassumfrassum)]] and [[https://github.com/thefrontside/lspx][lspx]] where different projects may require different server combinations.
+=eglot-multi-preset= provides a mechanism for selecting LSP server presets when starting Eglot. This is particularly useful when working with LSP multiplexers like [[https://github.com/AshleyYakeley/rassumfrassum][rass (rassumfrassum)]] where different projects may require different server combinations.
 
 *Important:* This package is designed for *multi-server configurations only*. Single-server setups should use =eglot-server-programs= directly.
 
@@ -57,7 +57,7 @@ Clone or download this repository, then add to your =load-path=:
 
 3. Select a preset from the completion menu:
    - "eglot default" uses the standard =eglot-server-programs=
-   - Other options are multi-server presets (e.g., "rass: ty + ruff", "lspx: ty + ruff")
+   - Other options are multi-server presets (e.g., "rass: ty + ruff")
 
 4. When prompted, choose whether to save the selection to =.dir-locals.el=
 
@@ -79,18 +79,11 @@ Alist mapping major modes to their LSP server presets. Each entry is =(MODE-OR-M
         '(((python-mode python-ts-mode)
            . (("rass: ty + ruff" . ("rass" "python"))
               ("rass: pyright + ruff" . ("rass" "--" "pyright-langserver" "--stdio"
-                                         "--" "ruff" "server"))
-              ("lspx: ty + ruff" . ("lspx" "--lsp" "ty server"
-                                    "--lsp" "ruff server"))
-              ("lspx: pyright + ruff" . ("lspx" "--lsp" "pyright-langserver --stdio"
-                                         "--lsp" "ruff server"))))
+                                         "--" "ruff" "server"))))
           ((typescript-mode typescript-ts-mode)
            . (("rass: ts-ls + eslint"
                . ("rass" "--" "typescript-language-server" "--stdio"
-                  "--" "vscode-eslint-language-server" "--stdio"))
-              ("lspx: ts-ls + eslint"
-               . ("lspx" "--lsp" "typescript-language-server --stdio"
-                  "--lsp" "vscode-eslint-language-server --stdio"))))))
+                  "--" "vscode-eslint-language-server" "--stdio"))))))
 #+end_src
 
 ** =eglot-multi-preset-auto-save=
@@ -130,8 +123,7 @@ when your environment provides =rass.exe= instead of =rass.cmd=.
 
 #+begin_src emacs-lisp
   (setq eglot-multi-preset-executable-overrides
-        '(("rass" . "rass.exe")
-          ("lspx" . "lspx.exe")))
+        '(("rass" . "rass.exe")))
 #+end_src
 
 If you change this after the package is already loaded, regenerate the
@@ -187,7 +179,7 @@ After changing any of the three settings above, regenerate built-in presets:
 
 * Windows Support
 
-On Windows, Node.js CLI tools installed via npm are provided as =.cmd= batch files (e.g., =rass.cmd=, =lspx.cmd=, =typescript-language-server.cmd=). This package automatically detects Windows and appends the =.cmd= suffix to executable names in the default presets.
+On Windows, Node.js CLI tools installed via npm are provided as =.cmd= batch files (e.g., =rass.cmd=, =typescript-language-server.cmd=). This package automatically detects Windows and appends the =.cmd= suffix to executable names in the default presets.
 
 If you register custom presets with =eglot-multi-preset-register=, you may need to handle platform-specific executable names yourself:
 
@@ -208,8 +200,6 @@ The package includes these default presets:
 |----------------------+----------------------------------------------|
 | rass: ty + ruff      | ty (type checker) + ruff (linter/formatter)  |
 | rass: pyright + ruff | pyright-langserver + ruff server             |
-| lspx: ty + ruff      | ty server + ruff server                      |
-| lspx: pyright + ruff | pyright-langserver --stdio + ruff server     |
 
 ** TypeScript/JavaScript
 
@@ -217,8 +207,6 @@ The package includes these default presets:
 |---------------------------------+----------------------------------------------------|
 | rass: ts-ls + eslint            | typescript-language-server + eslint                |
 | rass: ts-ls + eslint + tailwind | typescript-language-server + eslint + tailwindcss  |
-| lspx: ts-ls + eslint            | typescript-language-server --stdio + eslint --stdio |
-| lspx: ts-ls + eslint + tailwind | typescript-language-server --stdio + eslint --stdio + tailwindcss --stdio |
 
 * Troubleshooting
 
@@ -284,7 +272,6 @@ Interactively remove saved eglot configuration from =.dir-locals.el= for the cur
 
 - [[https://github.com/joaotavora/eglot][Eglot]] - The Emacs LSP client this package extends
 - [[https://github.com/joaotavora/rassumfrassum][rass (rassumfrassum)]] - LSP multiplexer for combining multiple language servers
-- [[https://github.com/thefrontside/lspx][lspx]] - LSP multiplexer for running multiple servers in one stream
 
 * License
 
