@@ -54,11 +54,29 @@
   "TCP contacts of the form (HOST PORT) should skip executable checks."
   (should-not (eglot-multi-preset--missing-executables '("127.0.0.1" 2087))))
 
+(ert-deftest eglot-multi-preset-missing-executables-ignores-tcp-contact-with-args ()
+  "TCP contacts with additional network arguments should skip checks."
+  (should-not
+   (eglot-multi-preset--missing-executables
+    '("127.0.0.1" 2087 :type plain :coding utf-8-unix))))
+
 (ert-deftest eglot-multi-preset-missing-executables-checks-command-contact ()
   "Command contacts should still report missing executables."
   (let ((program "eglot-multi-preset-not-a-real-executable-for-test"))
     (should (equal (eglot-multi-preset--missing-executables (list program))
                    (list program)))))
+
+(ert-deftest eglot-multi-preset-contact-from-server-programs-matches-language-id-spec ()
+  "Contact lookup should match MODE specs containing :language-id."
+  (let* ((contact '("rass" "--" "typescript-language-server" "--stdio"))
+         (server-programs
+          `((((tsx-ts-mode :language-id "typescriptreact")
+              (typescript-ts-mode :language-id "typescript"))
+             . ,contact))))
+    (should (equal (eglot-multi-preset--contact-from-server-programs
+                    server-programs
+                    'tsx-ts-mode)
+                   contact))))
 
 (ert-deftest eglot-multi-preset-save-to-dir-locals-keeps-malformed-file ()
   "Saving a preset must not overwrite malformed existing .dir-locals.el."

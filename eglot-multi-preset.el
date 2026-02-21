@@ -784,11 +784,11 @@ Supports multiplexed commands like:
       (delete-dups (nreverse executables)))))
 
 (defun eglot-multi-preset--tcp-contact-p (contact)
-  "Return non-nil if CONTACT is a TCP tuple of the form (HOST PORT)."
+  "Return non-nil if CONTACT is TCP form (HOST PORT [TCP-ARGS...])."
   (and (listp contact)
-       (= (length contact) 2)
        (stringp (car contact))
-       (integerp (cadr contact))))
+       (integerp (cadr contact))
+       (> (cadr contact) 0)))
 
 (defun eglot-multi-preset--missing-executables (contact)
   "Return missing executable names in CONTACT command lists.
@@ -797,6 +797,23 @@ For TCP contacts like (HOST PORT), return nil."
     (cl-remove-if #'executable-find
                   (eglot-multi-preset--contact-executables contact))))
 
+(defun eglot-multi-preset--server-program-mode-matches-p (mode mode-spec)
+  "Return non-nil when MODE matches MODE-SPEC in `eglot-server-programs'.
+MODE-SPEC can be a symbol, a descriptor like (MODE :language-id ID),
+or a list combining those forms."
+  (cond
+   ((eq mode mode-spec) t)
+   ((and (consp mode-spec)
+         (symbolp (car mode-spec))
+         (keywordp (cadr mode-spec)))
+    (eq mode (car mode-spec)))
+   ((listp mode-spec)
+    (cl-some
+     (lambda (entry)
+       (eglot-multi-preset--server-program-mode-matches-p mode entry))
+     mode-spec))
+   (t nil)))
+
 (defun eglot-multi-preset--contact-from-server-programs (server-programs mode)
   "Extract CONTACT for MODE from SERVER-PROGRAMS.
 SERVER-PROGRAMS should be a value compatible with `eglot-server-programs'."
@@ -804,9 +821,9 @@ SERVER-PROGRAMS should be a value compatible with `eglot-server-programs'."
     (when-let* ((entry
                  (cl-find-if
                   (lambda (item)
-                    (let ((modes (car-safe item)))
-                      (or (eq modes mode)
-                          (and (listp modes) (memq mode modes)))))
+                    (eglot-multi-preset--server-program-mode-matches-p
+                     mode
+                     (car-safe item)))
                   server-programs)))
       (cdr entry))))
 
