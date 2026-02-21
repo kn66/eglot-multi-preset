@@ -11,6 +11,7 @@
 
 (require 'ert)
 (require 'cl-lib)
+(setq load-prefer-newer t)
 (require 'eglot-multi-preset)
 
 (defun eglot-multi-preset-tests--read-form (file)
@@ -92,6 +93,15 @@
   (let ((eglot-multi-preset-extra-tcp-hosts '("devbox")))
     (should (eglot-multi-preset--tcp-contact-p '("devbox" 2087)))
     (should-not (eglot-multi-preset--missing-executables '("devbox" 2087)))))
+
+(ert-deftest eglot-multi-preset-missing-executables-does-not-misclassify-hex-command ()
+  "Hex-like command names should not be treated as bare IPv6 TCP hosts."
+  (let ((program "deadbeef"))
+    (should-not (eglot-multi-preset--tcp-contact-p (list program 2087)))
+    (cl-letf (((symbol-function 'executable-find)
+               (lambda (_exe) nil)))
+      (should (equal (eglot-multi-preset--missing-executables (list program 2087))
+                     (list program))))))
 
 (ert-deftest eglot-multi-preset-contact-from-server-programs-matches-language-id-spec ()
   "Contact lookup should match MODE specs containing :language-id."

@@ -325,6 +325,16 @@ the current mode and related modes in the same preset group:
   M-x eglot-multi-preset-clear-dir-locals
 #+end_src
 
+* Testing
+
+Run ERT tests from the project root:
+
+#+begin_src shell
+  emacs -Q --batch --eval '(setq load-prefer-newer t)' -L . \
+    -l tests/eglot-multi-preset-tests.el \
+    -f ert-run-tests-batch-and-exit
+#+end_src
+
 * Related Packages
 
 - [[https://github.com/joaotavora/eglot][Eglot]] - The Emacs LSP client this package extends

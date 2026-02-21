@@ -878,7 +878,10 @@ look like a network host literal to avoid misclassifying command contacts."
                    (cl-member host eglot-multi-preset-extra-tcp-hosts
                               :test #'string-equal)
                    (string-match-p "\\`[0-9]+\\(?:\\.[0-9]+\\)\\{3\\}\\'" host)
-                   (string-match-p "\\`\\[?[[:xdigit:]:]+\\]?\\'" host)
+                   ;; Avoid treating hex-like command names (e.g. "deadbeef")
+                   ;; as IPv6 hosts unless a colon is present.
+                   (and (string-match-p ":" host)
+                        (string-match-p "\\`\\[?[[:xdigit:]:]+\\]?\\'" host))
                    (string-match-p "\\`[^./\\\\]+\\.[^./\\\\]+\\'" host)))
           ;; TCP args form: require keyword/value pairs.
           (and (consp tcp-args)
