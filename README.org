@@ -26,6 +26,14 @@ Multi-server LSP preset selection for Eglot.
 
 * Installation
 
+** Install rass
+
+Install rassumfrassum first so the =rass= command is available:
+
+#+begin_src sh
+  pip install rassumfrassum
+#+end_src
+
 ** Manual Installation
 
 Clone or download this repository, then add to your =load-path=:
