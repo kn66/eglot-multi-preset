@@ -111,6 +111,8 @@ Directory where =.dir-locals.el= should be saved. If =nil= (default), uses the p
 
 *Note:* Saving presets rewrites =.dir-locals.el= as a normalized Lisp form.
 Existing comments or hand formatting in that file may be lost after save.
+If the file contains malformed content, or additional non-comment forms after
+the main top-level form, saving is refused to avoid destructive overwrites.
 
 ** =eglot-multi-preset-language-id-overrides=
 
@@ -140,6 +142,16 @@ built-in preset contacts:
 #+end_src
 
 *Tip:* if you use =setopt= (or Customize), built-ins are rebuilt automatically.
+
+** =eglot-multi-preset-extra-tcp-hosts=
+
+Treat additional single-label hostnames as TCP contacts for two-item contacts
+of the form =(HOST PORT)=.
+This is useful for hosts like =devbox= that are not FQDNs.
+
+#+begin_src emacs-lisp
+  (setq eglot-multi-preset-extra-tcp-hosts '("devbox" "staging-lsp"))
+#+end_src
 
 ** =eglot-multi-preset-extra-alist=
 

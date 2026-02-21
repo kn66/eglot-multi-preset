@@ -366,6 +366,14 @@ understood by some language servers."
   :type '(alist :key-type symbol :value-type string)
   :group 'eglot-multi-preset)
 
+(defcustom eglot-multi-preset-extra-tcp-hosts nil
+  "Additional bare hostnames treated as TCP contacts.
+This affects two-element contacts of the form (HOST PORT).
+Use this when HOST is a single-label name like \"devbox\" that
+would otherwise be ambiguous with command-style contacts."
+  :type '(repeat string)
+  :group 'eglot-multi-preset)
+
 ;;; Project workspace configuration storage
 
 (defvar eglot-multi-preset--project-workspace-configs (make-hash-table :test 'equal)
@@ -556,7 +564,7 @@ to reading from .dir-locals.el."
 Returns `eglot-multi-preset-dir-locals-directory' if set,
 otherwise returns the project root directory."
   (or eglot-multi-preset-dir-locals-directory
-      (when-let ((project (project-current)))
+      (when-let ((project (eglot-multi-preset--eglot-current-project)))
         (project-root project))
       default-directory))
 
@@ -580,7 +588,7 @@ Returns the parsed alist, or nil if file doesn't exist or can't be parsed."
         (insert-file-contents dir-locals-file)
         (goto-char (point-min))
         (condition-case err
-            (eglot-multi-preset--safe-read (current-buffer))
+            (eglot-multi-preset--parse-dir-locals-buffer dir-locals-file)
           (error
            (message "Ignoring malformed %s: %s"
                     dir-locals-file
@@ -592,6 +600,15 @@ Returns the parsed alist, or nil if file doesn't exist or can't be parsed."
   (let ((read-eval nil))
     (read buffer)))
 
+(defun eglot-multi-preset--dir-locals-content-p (content)
+  "Return non-nil when CONTENT looks like a top-level .dir-locals alist."
+  (and (listp content)
+       (cl-every
+        (lambda (entry)
+          (and (consp entry)
+               (listp (cdr entry))))
+        content)))
+
 (defun eglot-multi-preset--non-comment-content-p (text)
   "Return non-nil if TEXT contains non-comment, non-blank content."
   (cl-some
@@ -599,6 +616,25 @@ Returns the parsed alist, or nil if file doesn't exist or can't be parsed."
      (not (or (string-match-p "\\`\\s-*\\'" line)
               (string-match-p "\\`\\s-*;.*\\'" line))))
    (split-string text "\n")))
+
+(defun eglot-multi-preset--parse-dir-locals-buffer (&optional file)
+  "Parse current buffer as .dir-locals content.
+FILE is used only for error messages.
+Return parsed alist, or nil if buffer has only comments/whitespace.
+Signal `error' if parsing fails, if trailing non-comment content exists,
+or if the top-level form is not an alist."
+  (goto-char (point-min))
+  (let* ((file-label (or file "buffer"))
+         (text (buffer-substring-no-properties (point-min) (point-max))))
+    (if (not (eglot-multi-preset--non-comment-content-p text))
+        nil
+      (let ((content (eglot-multi-preset--safe-read (current-buffer)))
+            (trailing (buffer-substring-no-properties (point) (point-max))))
+        (when (eglot-multi-preset--non-comment-content-p trailing)
+          (error "Unexpected trailing non-comment content in %s" file-label))
+        (unless (eglot-multi-preset--dir-locals-content-p content)
+          (error "Top-level form in %s must be an alist" file-label))
+        content))))
 
 (defun eglot-multi-preset--ensure-unmodified-file-buffer (buffer file)
   "Signal `user-error' when BUFFER visiting FILE has unsaved edits."
@@ -669,16 +705,13 @@ Returns non-nil on success, nil on failure."
               (setq opened-buffer (find-file-noselect dir-locals-file))
               (with-current-buffer opened-buffer
                 (goto-char (point-min))
-                (let* ((existing-text
-                        (buffer-substring-no-properties (point-min) (point-max)))
-                       (content
+                (let ((content
                         (condition-case parse-err
-                            (eglot-multi-preset--safe-read (current-buffer))
+                            (eglot-multi-preset--parse-dir-locals-buffer
+                             dir-locals-file)
                           (error
-                           (if (eglot-multi-preset--non-comment-content-p existing-text)
-                               (user-error "Failed to parse existing .dir-locals.el: %s"
-                                           (error-message-string parse-err))
-                             nil)))))
+                           (user-error "Failed to parse existing .dir-locals.el: %s"
+                                       (error-message-string parse-err))))))
                   ;; Find or create mode entries for all related modes.
                   (dolist (target-mode target-modes)
                     (let* ((mode-entry (assq target-mode content))
@@ -842,6 +875,8 @@ look like a network host literal to avoid misclassifying command contacts."
           ;; Bare TCP contact: require host-like syntax for safety.
           (and (null tcp-args)
                (or (string= host "localhost")
+                   (cl-member host eglot-multi-preset-extra-tcp-hosts
+                              :test #'string-equal)
                    (string-match-p "\\`[0-9]+\\(?:\\.[0-9]+\\)\\{3\\}\\'" host)
                    (string-match-p "\\`\\[?[[:xdigit:]:]+\\]?\\'" host)
                    (string-match-p "\\`[^./\\\\]+\\.[^./\\\\]+\\'" host)))
@@ -1199,7 +1234,8 @@ for the current mode and related modes in the same preset group."
                 (goto-char (point-min))
                 (let ((content
                        (condition-case err
-                           (eglot-multi-preset--safe-read (current-buffer))
+                           (eglot-multi-preset--parse-dir-locals-buffer
+                            dir-locals-file)
                          (error
                           (user-error "Failed to parse %s: %s"
                                       dir-locals-file

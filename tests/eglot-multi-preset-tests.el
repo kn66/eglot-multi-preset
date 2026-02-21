@@ -87,6 +87,12 @@
     (should (equal (eglot-multi-preset--missing-executables (list program 2087))
                    (list program)))))
 
+(ert-deftest eglot-multi-preset-missing-executables-ignores-configured-single-label-tcp-host ()
+  "Configured single-label hosts should be treated as TCP contacts."
+  (let ((eglot-multi-preset-extra-tcp-hosts '("devbox")))
+    (should (eglot-multi-preset--tcp-contact-p '("devbox" 2087)))
+    (should-not (eglot-multi-preset--missing-executables '("devbox" 2087)))))
+
 (ert-deftest eglot-multi-preset-contact-from-server-programs-matches-language-id-spec ()
   "Contact lookup should match MODE specs containing :language-id."
   (let* ((contact '("rass" "--" "typescript-language-server" "--stdio"))
@@ -293,6 +299,27 @@
                        messages)))))
       (ignore-errors (delete-directory tmp-dir t)))))
 
+(ert-deftest eglot-multi-preset-read-dir-locals-reports-structure-errors ()
+  "Non-alist .dir-locals top-level forms should be ignored with a message."
+  (let* ((tmp-dir (make-temp-file "eglot-multi-preset-tests-" t))
+         (dir-locals-file (expand-file-name ".dir-locals.el" tmp-dir))
+         (messages nil))
+    (unwind-protect
+        (progn
+          (with-temp-file dir-locals-file
+            (insert "foo\n"))
+          (let ((eglot-multi-preset-dir-locals-directory tmp-dir)
+                (default-directory tmp-dir))
+            (cl-letf (((symbol-function 'message)
+                       (lambda (fmt &rest args)
+                         (push (apply #'format fmt args) messages))))
+              (should-not (eglot-multi-preset--read-dir-locals))
+              (should (cl-some
+                       (lambda (msg)
+                         (string-match-p "Top-level form in .* must be an alist" msg))
+                       messages)))))
+      (ignore-errors (delete-directory tmp-dir t)))))
+
 (ert-deftest eglot-multi-preset-clear-dir-locals-errors-on-malformed-file ()
   "Clearing presets should fail loudly for malformed .dir-locals files."
   (let* ((tmp-dir (make-temp-file "eglot-multi-preset-tests-" t))
@@ -307,6 +334,59 @@
             (should-error (eglot-multi-preset-clear-dir-locals)
                           :type 'user-error)))
       (ignore-errors (delete-directory tmp-dir t)))))
+
+(ert-deftest eglot-multi-preset-save-to-dir-locals-refuses-trailing-forms ()
+  "Saving should fail when .dir-locals contains extra non-comment forms."
+  (let* ((tmp-dir (make-temp-file "eglot-multi-preset-tests-" t))
+         (dir-locals-file (expand-file-name ".dir-locals.el" tmp-dir))
+         (original-content
+          "((python-mode . ((fill-column . 88))))\n(setq my-extra 1)\n"))
+    (unwind-protect
+        (progn
+          (with-temp-file dir-locals-file
+            (insert original-content))
+          (should-not
+           (eglot-multi-preset--save-to-dir-locals
+            '("rass" "python") nil tmp-dir 'python-mode))
+          (should (equal (with-temp-buffer
+                           (insert-file-contents dir-locals-file)
+                           (buffer-string))
+                         original-content)))
+      (ignore-errors (delete-directory tmp-dir t)))))
+
+(ert-deftest eglot-multi-preset-clear-dir-locals-errors-on-trailing-forms ()
+  "Clearing presets should fail for .dir-locals files with extra forms."
+  (let* ((tmp-dir (make-temp-file "eglot-multi-preset-tests-" t))
+         (dir-locals-file (expand-file-name ".dir-locals.el" tmp-dir))
+         (original-content
+          "((python-mode . ((eglot-server-programs . (((python-mode) . (\"rass\" \"python\")))))))\n(setq my-extra 1)\n"))
+    (unwind-protect
+        (progn
+          (with-temp-file dir-locals-file
+            (insert original-content))
+          (let ((eglot-multi-preset-dir-locals-directory tmp-dir)
+                (default-directory tmp-dir)
+                (major-mode 'python-mode))
+            (should-error (eglot-multi-preset-clear-dir-locals)
+                          :type 'user-error))
+          (should (equal (with-temp-buffer
+                           (insert-file-contents dir-locals-file)
+                           (buffer-string))
+                         original-content)))
+      (ignore-errors (delete-directory tmp-dir t)))))
+
+(ert-deftest eglot-multi-preset-get-dir-locals-directory-uses-eglot-project-fallback ()
+  "Dir-locals directory lookup should use Eglot project fallback."
+  (let ((eglot-multi-preset-dir-locals-directory nil)
+        (default-directory "/tmp/eglot-multi-preset-default/"))
+    (cl-letf (((symbol-function 'project-current)
+               (lambda () nil))
+              ((symbol-function 'eglot-multi-preset--eglot-current-project)
+               (lambda () 'fake-project))
+              ((symbol-function 'project-root)
+               (lambda (_project) "/tmp/eglot-multi-preset-fallback/")))
+      (should (equal (eglot-multi-preset--get-dir-locals-directory)
+                     "/tmp/eglot-multi-preset-fallback/")))))
 
 (ert-deftest eglot-multi-preset-clear-dir-locals-preserves-unrelated-server-programs ()
   "Clearing presets should keep non-target server-program entries."
