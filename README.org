@@ -19,6 +19,49 @@ Multi-server LSP preset selection for Eglot.
 - Mode inheritance support (e.g., =python-ts-mode= inherits from =python-mode=)
 - Language ID overrides for modes that need explicit LSP IDs (e.g. =tsx-ts-mode=)
 
+* Screenshots
+
+** Typescript
+:PROPERTIES:
+:ID:       a644cee5-f8a3-49ff-bfd2-4873638c323a
+:END:
+
+#+DOWNLOADED: screenshot @ 2026-02-22 10:25:25
+[[file:Screenshots/2026-02-22_10-25-25_screenshot.png]]
+
+#+DOWNLOADED: screenshot @ 2026-02-22 10:26:04
+[[file:Screenshots/2026-02-22_10-26-04_screenshot.png]]
+
+#+DOWNLOADED: screenshot @ 2026-02-22 10:30:57
+[[file:Screenshots/2026-02-22_10-30-57_screenshot.png]]
+
+#+DOWNLOADED: screenshot @ 2026-02-22 10:29:47
+[[file:Screenshots/2026-02-22_10-29-47_screenshot.png]]
+
+#+DOWNLOADED: screenshot @ 2026-02-22 10:29:12
+[[file:Screenshots/2026-02-22_10-29-12_screenshot.png]]
+
+** Python
+:PROPERTIES:
+:ID:       b43825a5-bfd2-4f50-b0d2-1157384f5b29
+:END:
+
+#+DOWNLOADED: screenshot @ 2026-02-22 10:32:17
+[[file:Screenshots/2026-02-22_10-32-17_screenshot.png]]
+
+#+DOWNLOADED: screenshot @ 2026-02-22 10:32:45
+[[file:Screenshots/2026-02-22_10-32-45_screenshot.png]]
+
+#+DOWNLOADED: screenshot @ 2026-02-22 10:33:12
+[[file:Screenshots/2026-02-22_10-33-12_screenshot.png]]
+
+#+DOWNLOADED: screenshot @ 2026-02-22 10:34:42
+[[file:Screenshots/2026-02-22_10-34-42_screenshot.png]]
+
+#+DOWNLOADED: screenshot @ 2026-02-22 10:34:16
+[[file:Screenshots/2026-02-22_10-34-16_screenshot.png]]
+
+
 * Requirements
 
 - Emacs 30.1 or later
