@@ -188,10 +188,10 @@ Override the workspace/configuration payload used for ESLint presets:
 
 #+begin_src emacs-lisp
   (setq eglot-multi-preset-eslint-workspace-config
-        '(:eslint (:validate "probe"
-                   :workingDirectory (:mode "auto")
-                   :workingDirectories [(:mode "auto")]
-                   :packageManager "pnpm")))
+        '( :eslint ( :validate "probe"
+                     :workingDirectory (:mode "auto")
+                     :workingDirectories [(:mode "auto")]
+                     :packageManager "pnpm")))
 #+end_src
 
 ** =eglot-multi-preset-tailwind-workspace-config=
@@ -200,14 +200,15 @@ Override the workspace/configuration payload used for Tailwind presets:
 
 #+begin_src emacs-lisp
   (setq eglot-multi-preset-tailwind-workspace-config
-        '(:tailwindCSS (:emmetCompletions :json-false
-                        :showPixelEquivalents t
-                        :rootFontSize 16
-                        :validate t
-                        :hovers t
-                        :suggestions t
-                        :codeActions t
-                        :classAttributes ["class" "className"])))
+        '( :tailwindCSS ( :emmetCompletions
+                          :json-false
+                          :showPixelEquivalents t
+                          :rootFontSize 16
+                          :validate t
+                          :hovers t
+                          :suggestions t
+                          :codeActions t
+                          :classAttributes ["class" "className"])))
 #+end_src
 
 ** =eglot-multi-preset-tailwind-initialization-options=
@@ -217,7 +218,7 @@ for Tailwind presets:
 
 #+begin_src emacs-lisp
   (setq eglot-multi-preset-tailwind-initialization-options
-        '(:configuration (:tailwindCSS (:validate t :suggestions t))))
+        '( :configuration ( :tailwindCSS ( :validate t :suggestions t))))
 #+end_src
 
 After changing any of the three settings above, regenerate built-in presets:
@@ -237,8 +238,8 @@ If you register custom presets with =eglot-multi-preset-register=, you may need 
 #+begin_src emacs-lisp
   ;; Use the built-in helper for cross-platform compatibility
   (eglot-multi-preset-register 'vue-mode "rass: vue"
-    `(,(eglot-multi-preset--executable-name "rass")
-      "--" ,(eglot-multi-preset--executable-name "vue-language-server") "--stdio"))
+                               `(,(eglot-multi-preset--executable-name "rass")
+                                 "--" ,(eglot-multi-preset--executable-name "vue-language-server") "--stdio"))
 #+end_src
 
 * Default Presets
@@ -273,10 +274,10 @@ configuration, and for ESLint configs it returns the =:eslint= subsection
 ESLint workspace config includes:
 
 #+begin_src emacs-lisp
-  (:eslint (:validate "probe"
-             :workingDirectory (:mode "auto")
-             :workingDirectories [(:mode "auto")]
-             :packageManager "npm"))
+  ( :eslint ( :validate "probe"
+              :workingDirectory ( :mode "auto")
+              :workingDirectories [( :mode "auto")]
+              :packageManager "npm"))
 #+end_src
 
 ** Tailwind completion not shown
@@ -312,8 +313,8 @@ You can also pass =workspace-config= as the 4th argument:
    "rass: ts-ls + eslint (custom ws)"
    '("rass" "--" "typescript-language-server" "--stdio"
      "--" "vscode-eslint-language-server" "--stdio")
-   '(:eslint (:validate "probe"
-              :workingDirectory (:mode "auto"))))
+   '( :eslint ( :validate "probe"
+                :workingDirectory ( :mode "auto"))))
 #+end_src
 
 ** =eglot-multi-preset-unregister=
@@ -339,8 +340,8 @@ Run ERT tests from the project root:
 
 #+begin_src shell
   emacs -Q --batch --eval '(setq load-prefer-newer t)' -L . \
-    -l tests/eglot-multi-preset-tests.el \
-    -f ert-run-tests-batch-and-exit
+        -l tests/eglot-multi-preset-tests.el \
+        -f ert-run-tests-batch-and-exit
 #+end_src
 
 * Related Packages
