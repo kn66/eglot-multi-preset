@@ -992,6 +992,17 @@ workspace-configuration function when eglot requests it."
   "Non-nil when preset selection is in progress.
 Used to prevent recursive advice calls.")
 
+(defvar eglot-multi-preset--pending-prefix-arg nil
+  "Prefix argument captured for the next `eglot' command invocation.")
+
+(defun eglot-multi-preset--track-command-prefix ()
+  "Capture the prefix argument for the next `eglot' command.
+`current-prefix-arg' is no longer available by the time the `eglot'
+around advice runs, so record it during `pre-command-hook'."
+  (setq eglot-multi-preset--pending-prefix-arg
+        (and (eq this-command 'eglot)
+             current-prefix-arg)))
+
 (defun eglot-multi-preset--function-arg-index (function argument)
   "Return zero-based index of ARGUMENT in FUNCTION argument list.
 Returns nil if the argument list is unavailable or ARGUMENT is not present."
@@ -1059,70 +1070,72 @@ running, show selection UI.  Otherwise, call ORIG-FUN with ARGS as-is.
 With prefix argument, force preset selection even if dir-locals exists."
   (let ((presets (eglot-multi-preset--lookup-mode-presets major-mode))
         (existing-config (eglot-multi-preset--dir-locals-has-eglot-config-p))
-        (force-selection current-prefix-arg))
-    (cond
-     ;; Already in progress or server running - normal behavior
-     ((or eglot-multi-preset--in-progress (eglot-current-server))
-      (apply orig-fun args))
-     ;; No presets registered - normal behavior
-     ((not presets)
-      (apply orig-fun args))
-     ;; Dir-locals config exists and not forcing - use it
-     ((and existing-config (not force-selection))
-      (message "Using eglot preset from .dir-locals.el")
-      (let* ((workspace-config (eglot-multi-preset--dir-locals-get-workspace-config))
-             (contact-from-args
-              (eglot-multi-preset--args-get
-               args
-               (eglot-multi-preset--eglot-contact-arg-index)))
-             (saved-contact (eglot-multi-preset--contact-from-server-programs
-                             existing-config major-mode))
-             (contact
-              (if (and (listp contact-from-args) (stringp (car contact-from-args)))
-                  contact-from-args
-                saved-contact)))
-        ;; Always inject saved server programs while calling `eglot'.  This
-        ;; covers both custom dir-locals directories and related-mode fallback
-        ;; cases where Emacs did not apply mode-local variables directly.
-        (let ((eglot-server-programs (append existing-config eglot-server-programs)))
-          (when-let ((missing (eglot-multi-preset--missing-executables contact)))
-            (user-error "Missing LSP executables: %s" (mapconcat #'identity missing ", ")))
-          (eglot-multi-preset--apply-workspace-config workspace-config)
-          (apply orig-fun
-                 (eglot-multi-preset--refresh-eglot-args-if-interactive args)))))
-     ;; Show preset selection
-     (t
-      (let* ((candidates (eglot-multi-preset--build-candidates major-mode))
-             (selected (completing-read "LSP preset: " candidates nil t)))
-        (if (string= selected eglot-multi-preset-default-label)
-            ;; "eglot default" selected - use standard eglot
-            (progn
-              (eglot-multi-preset--apply-workspace-config nil)
-              (apply orig-fun args))
-          ;; Custom preset selected
-          (let* ((eglot-multi-preset--in-progress t)
-                 (contact (eglot-multi-preset--get-contact selected major-mode))
-                 (workspace-config (eglot-multi-preset--get-workspace-config selected major-mode))
-                 (eglot-server-programs
-                  (cons (cons (eglot-multi-preset--server-mode-spec major-mode)
-                              contact)
-                        eglot-server-programs)))
-            (when-let ((missing (eglot-multi-preset--missing-executables contact)))
-              (user-error "Missing LSP executables: %s" (mapconcat #'identity missing ", ")))
-            ;; Apply workspace configuration buffer-locally
-            (eglot-multi-preset--apply-workspace-config workspace-config)
-            ;; Save based on eglot-multi-preset-auto-save setting
-            (when (and contact
-                       (or (not existing-config) force-selection)
-                       (not (eq eglot-multi-preset-auto-save 'never))
-                       (or (eq eglot-multi-preset-auto-save 'always)
-                           (y-or-n-p "Save this preset to .dir-locals.el? ")))
-              (let ((save-dir (eglot-multi-preset--choose-save-directory)))
-                (unless (eglot-multi-preset--save-to-dir-locals contact workspace-config save-dir major-mode)
-                  (user-error "Could not save selected preset to %s/.dir-locals.el"
-                              save-dir))))
-            (apply orig-fun
-                   (eglot-multi-preset--refresh-eglot-args-if-interactive args)))))))))
+        (force-selection eglot-multi-preset--pending-prefix-arg))
+    (unwind-protect
+        (cond
+         ;; Already in progress or server running - normal behavior
+         ((or eglot-multi-preset--in-progress (eglot-current-server))
+          (apply orig-fun args))
+         ;; No presets registered - normal behavior
+         ((not presets)
+          (apply orig-fun args))
+         ;; Dir-locals config exists and not forcing - use it
+         ((and existing-config (not force-selection))
+          (message "Using eglot preset from .dir-locals.el")
+          (let* ((workspace-config (eglot-multi-preset--dir-locals-get-workspace-config))
+                 (contact-from-args
+                  (eglot-multi-preset--args-get
+                   args
+                   (eglot-multi-preset--eglot-contact-arg-index)))
+                 (saved-contact (eglot-multi-preset--contact-from-server-programs
+                                 existing-config major-mode))
+                 (contact
+                  (if (and (listp contact-from-args) (stringp (car contact-from-args)))
+                      contact-from-args
+                    saved-contact)))
+            ;; Always inject saved server programs while calling `eglot'.  This
+            ;; covers both custom dir-locals directories and related-mode fallback
+            ;; cases where Emacs did not apply mode-local variables directly.
+            (let ((eglot-server-programs (append existing-config eglot-server-programs)))
+              (when-let ((missing (eglot-multi-preset--missing-executables contact)))
+                (user-error "Missing LSP executables: %s" (mapconcat #'identity missing ", ")))
+              (eglot-multi-preset--apply-workspace-config workspace-config)
+              (apply orig-fun
+                     (eglot-multi-preset--refresh-eglot-args-if-interactive args)))))
+         ;; Show preset selection
+         (t
+          (let* ((candidates (eglot-multi-preset--build-candidates major-mode))
+                 (selected (completing-read "LSP preset: " candidates nil t)))
+            (if (string= selected eglot-multi-preset-default-label)
+                ;; "eglot default" selected - use standard eglot
+                (progn
+                  (eglot-multi-preset--apply-workspace-config nil)
+                  (apply orig-fun args))
+              ;; Custom preset selected
+              (let* ((eglot-multi-preset--in-progress t)
+                     (contact (eglot-multi-preset--get-contact selected major-mode))
+                     (workspace-config (eglot-multi-preset--get-workspace-config selected major-mode))
+                     (eglot-server-programs
+                      (cons (cons (eglot-multi-preset--server-mode-spec major-mode)
+                                  contact)
+                            eglot-server-programs)))
+                (when-let ((missing (eglot-multi-preset--missing-executables contact)))
+                  (user-error "Missing LSP executables: %s" (mapconcat #'identity missing ", ")))
+                ;; Apply workspace configuration buffer-locally
+                (eglot-multi-preset--apply-workspace-config workspace-config)
+                ;; Save based on eglot-multi-preset-auto-save setting
+                (when (and contact
+                           (or (not existing-config) force-selection)
+                           (not (eq eglot-multi-preset-auto-save 'never))
+                           (or (eq eglot-multi-preset-auto-save 'always)
+                               (y-or-n-p "Save this preset to .dir-locals.el? ")))
+                  (let ((save-dir (eglot-multi-preset--choose-save-directory)))
+                    (unless (eglot-multi-preset--save-to-dir-locals contact workspace-config save-dir major-mode)
+                      (user-error "Could not save selected preset to %s/.dir-locals.el"
+                                  save-dir))))
+                (apply orig-fun
+                       (eglot-multi-preset--refresh-eglot-args-if-interactive args)))))))
+      (setq eglot-multi-preset--pending-prefix-arg nil))))
 
 (defvar eglot-multi-preset--saved-workspace-configuration nil
   "Saved value of `eglot-workspace-configuration' default before mode activation.")
@@ -1145,6 +1158,7 @@ The first option is always \"eglot default\" which uses the standard
           (unless already-enabled
             (setq eglot-multi-preset--saved-workspace-configuration
                   (default-value 'eglot-workspace-configuration))
+            (add-hook 'pre-command-hook #'eglot-multi-preset--track-command-prefix)
             (advice-add 'eglot :around #'eglot-multi-preset--maybe-select-preset))
           (setq-default eglot-workspace-configuration
                         #'eglot-multi-preset--workspace-configuration-function))
@@ -1155,6 +1169,8 @@ The first option is always \"eglot default\" which uses the standard
           (setq-default eglot-workspace-configuration
                         eglot-multi-preset--saved-workspace-configuration))
         (clrhash eglot-multi-preset--project-workspace-configs)
+        (remove-hook 'pre-command-hook #'eglot-multi-preset--track-command-prefix)
+        (setq eglot-multi-preset--pending-prefix-arg nil)
         (advice-remove 'eglot #'eglot-multi-preset--maybe-select-preset))
       (setq eglot-multi-preset--saved-workspace-configuration nil))))
 
