@@ -66,6 +66,48 @@
       (ignore-errors (eglot-multi-preset-mode 0))
       (setq-default eglot-workspace-configuration original-default))))
 
+(ert-deftest eglot-multi-preset-workspace-config-falls-back-to-saved-default ()
+  "Workspace configuration should preserve the value active before mode enable."
+  (let ((eglot-multi-preset--saved-workspace-configuration
+         '(:global (:enabled t))))
+    (cl-letf (((symbol-function 'eglot-multi-preset--server-project-root)
+               (lambda (_server) "/tmp/eglot-multi-preset-project/"))
+              ((symbol-function 'eglot-multi-preset--server-primary-mode)
+               (lambda (_server) 'python-mode))
+              ((symbol-function 'hack-dir-local-variables-non-file-buffer)
+               (lambda () nil)))
+      (clrhash eglot-multi-preset--project-workspace-configs)
+      (should (equal (eglot-multi-preset--workspace-configuration-function nil)
+                     `(:global (:enabled t)
+                       ,eglot-multi-preset--empty-workspace-section-key
+                       (:global (:enabled t))))))))
+
+(ert-deftest eglot-multi-preset-workspace-config-is-scoped-by-mode ()
+  "Runtime workspace configs for one mode should not overwrite another mode."
+  (let ((project-root "/tmp/eglot-multi-preset-project/")
+        (ts-config '(:eslint (:validate "probe")))
+        (eglot-multi-preset--saved-workspace-configuration nil))
+    (cl-letf (((symbol-function 'eglot-multi-preset--current-project-root)
+               (lambda () project-root))
+              ((symbol-function 'eglot-multi-preset--server-project-root)
+               (lambda (_server) project-root))
+              ((symbol-function 'hack-dir-local-variables-non-file-buffer)
+               (lambda () nil)))
+      (clrhash eglot-multi-preset--project-workspace-configs)
+      (let ((major-mode 'typescript-mode))
+        (eglot-multi-preset--apply-workspace-config ts-config))
+      (let ((major-mode 'python-mode))
+        (eglot-multi-preset--apply-workspace-config nil))
+      (cl-letf (((symbol-function 'eglot-multi-preset--server-primary-mode)
+                 (lambda (_server) 'typescript-mode)))
+        (should (equal (eglot-multi-preset--workspace-configuration-function nil)
+                       `(:eslint (:validate "probe")
+                         ,eglot-multi-preset--empty-workspace-section-key
+                         (:validate "probe")))))
+      (cl-letf (((symbol-function 'eglot-multi-preset--server-primary-mode)
+                 (lambda (_server) 'python-mode)))
+        (should-not (eglot-multi-preset--workspace-configuration-function nil))))))
+
 (ert-deftest eglot-multi-preset-missing-executables-ignores-tcp-contact ()
   "TCP contacts of the form (HOST PORT) should skip executable checks."
   (should-not (eglot-multi-preset--missing-executables '("127.0.0.1" 2087))))

@@ -377,9 +377,12 @@ would otherwise be ambiguous with command-style contacts."
 ;;; Project workspace configuration storage
 
 (defvar eglot-multi-preset--project-workspace-configs (make-hash-table :test 'equal)
-  "Hash table mapping project roots to workspace configurations.
+  "Hash table mapping project/mode pairs to workspace configurations.
 Used to provide workspace configuration to eglot without requiring
 .dir-locals.el to be saved first.")
+
+(defvar eglot-multi-preset--saved-workspace-configuration nil
+  "Saved value of `eglot-workspace-configuration' default before mode activation.")
 
 (defconst eglot-multi-preset--empty-workspace-section-key
   (intern "")
@@ -419,6 +422,21 @@ unavailable."
   (or (when (and server (fboundp 'eglot--major-modes))
         (car (ignore-errors (eglot--major-modes server))))
       major-mode))
+
+(defun eglot-multi-preset--workspace-config-key (project-root mode)
+  "Return hash key for PROJECT-ROOT and MODE workspace configuration."
+  (cons project-root mode))
+
+(defun eglot-multi-preset--saved-workspace-configuration (server)
+  "Return saved default workspace configuration for SERVER."
+  (cond
+   ((eq eglot-multi-preset--saved-workspace-configuration
+        #'eglot-multi-preset--workspace-configuration-function)
+    nil)
+   ((functionp eglot-multi-preset--saved-workspace-configuration)
+    (funcall eglot-multi-preset--saved-workspace-configuration server))
+   (t
+    eglot-multi-preset--saved-workspace-configuration)))
 
 (defun eglot-multi-preset--guess-contact ()
   "Guess Eglot contact for the current buffer, if available.
@@ -553,14 +571,16 @@ First checks the preset-specific config stored in
 `eglot-multi-preset--project-workspace-configs', then falls back
 to reading from .dir-locals.el."
   (let* ((project-root (eglot-multi-preset--server-project-root server))
-         (preset-config (gethash project-root
-                                 eglot-multi-preset--project-workspace-configs))
+         (mode (eglot-multi-preset--server-primary-mode server))
+         (preset-config
+          (gethash (eglot-multi-preset--workspace-config-key project-root mode)
+                   eglot-multi-preset--project-workspace-configs))
          (dir-local-config
           ;; Fallback: read from dir-locals (existing behavior)
           (when project-root
             (with-temp-buffer
               (setq default-directory project-root)
-              (setq major-mode (eglot-multi-preset--server-primary-mode server))
+              (setq major-mode mode)
               (hack-dir-local-variables-non-file-buffer)
               eglot-workspace-configuration))))
     (eglot-multi-preset--workspace-config-with-empty-section
@@ -569,7 +589,8 @@ to reading from .dir-locals.el."
          ;; function value.  In that case, return nil to avoid sending a
          ;; function object as workspace configuration.
          (unless (functionp dir-local-config)
-           dir-local-config)))))
+           dir-local-config)
+         (eglot-multi-preset--saved-workspace-configuration server)))))
 
 ;;; Internal functions
 
@@ -978,13 +999,14 @@ Returns list starting with the default label followed by mode-specific presets."
   "Apply WORKSPACE-CONFIG for the current project.
 WORKSPACE-CONFIG is a plist like (:eslint (:validate \"probe\" ...)).
 This stores the configuration in `eglot-multi-preset--project-workspace-configs'
-using the project root as key, so it can be retrieved by the
+using the project root and major mode as key, so it can be retrieved by the
 workspace-configuration function when eglot requests it."
-  (when-let ((project-root (eglot-multi-preset--current-project-root)))
+  (when-let* ((project-root (eglot-multi-preset--current-project-root))
+              (key (eglot-multi-preset--workspace-config-key project-root major-mode)))
     (if workspace-config
-        (puthash project-root workspace-config
+        (puthash key workspace-config
                  eglot-multi-preset--project-workspace-configs)
-      (remhash project-root eglot-multi-preset--project-workspace-configs))))
+      (remhash key eglot-multi-preset--project-workspace-configs))))
 
 ;;; Eglot integration (advice)
 
@@ -1136,9 +1158,6 @@ With prefix argument, force preset selection even if dir-locals exists."
                 (apply orig-fun
                        (eglot-multi-preset--refresh-eglot-args-if-interactive args)))))))
       (setq eglot-multi-preset--pending-prefix-arg nil))))
-
-(defvar eglot-multi-preset--saved-workspace-configuration nil
-  "Saved value of `eglot-workspace-configuration' default before mode activation.")
 
 ;;;###autoload
 (define-minor-mode eglot-multi-preset-mode
