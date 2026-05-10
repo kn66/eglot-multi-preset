@@ -605,7 +605,7 @@ otherwise returns the project root directory."
 
 (defun eglot-multi-preset--dir-locals-file ()
   "Get the path to `.dir-locals.el' for the current context."
-  (expand-file-name ".dir-locals.el"
+  (expand-file-name dir-locals-file
                     (eglot-multi-preset--get-dir-locals-directory)))
 
 (defun eglot-multi-preset--choose-save-directory ()
@@ -803,9 +803,9 @@ When MODE belongs to a grouped preset (e.g. TS/JS modes), this writes
 entries for all related modes so reopening another mode in the same
 group still uses the selected preset.
 Returns non-nil on success, nil on failure."
-  (let* ((dir-locals-file (expand-file-name ".dir-locals.el" dir))
+  (let* ((dir-locals-path (expand-file-name dir-locals-file dir))
          (target-modes (eglot-multi-preset--related-modes mode))
-         (existing-buffer (find-buffer-visiting dir-locals-file))
+         (existing-buffer (find-buffer-visiting dir-locals-path))
          (opened-buffer nil)
          (success nil))
     (unwind-protect
@@ -815,13 +815,13 @@ Returns non-nil on success, nil on failure."
                 (make-directory dir t))
               (eglot-multi-preset--ensure-unmodified-file-buffer
                existing-buffer
-               dir-locals-file)
-              (setq opened-buffer (find-file-noselect dir-locals-file))
+               dir-locals-path)
+              (setq opened-buffer (find-file-noselect dir-locals-path))
               (with-current-buffer opened-buffer
                 (goto-char (point-min))
                 (let ((content
                        (eglot-multi-preset--parse-dir-locals-or-user-error
-                        dir-locals-file
+                        dir-locals-path
                         "Failed to parse existing .dir-locals.el")))
                   (dolist (target-mode target-modes)
                     (setq content
@@ -833,7 +833,7 @@ Returns non-nil on success, nil on failure."
                   (eglot-multi-preset--insert-dir-locals-content content)
                   (save-buffer)))
               (setq success t)
-              (message "Saved eglot preset to %s" dir-locals-file))
+              (message "Saved eglot preset to %s" dir-locals-path))
           (error
            (message "Failed to save eglot preset: %s" (error-message-string err))
            (setq success nil)))
@@ -866,11 +866,8 @@ return all symbols in that group.  Otherwise return a list with MODE only."
 MODE-SPEC can be a single mode symbol or a list of mode symbols.
 Also checks parent modes for inheritance."
   (let ((modes (eglot-multi-preset--normalize-modes mode-spec)))
-    (or (memq mode modes)
-        ;; Check parent mode
-        (let ((parent (get mode 'derived-mode-parent)))
-          (and parent
-               (eglot-multi-preset--mode-matches-p parent mode-spec))))))
+    (and (symbolp mode)
+         (provided-mode-derived-p mode modes))))
 
 (defun eglot-multi-preset--lookup-mode-presets (mode)
   "Look up presets for MODE from `eglot-multi-preset-alist'.
@@ -1205,8 +1202,8 @@ FORCE-SELECTION means the user explicitly requested preset selection."
              workspace-config
              save-dir
              major-mode)
-      (user-error "Could not save selected preset to %s/.dir-locals.el"
-                  save-dir))))
+      (user-error "Could not save selected preset to %s"
+                  (expand-file-name dir-locals-file save-dir)))))
 
 (defun eglot-multi-preset--call-with-selected-preset
     (orig-fun args selected existing-config force-selection)

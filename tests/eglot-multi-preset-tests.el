@@ -157,6 +157,23 @@
                     'tsx-ts-mode)
                    contact))))
 
+(ert-deftest eglot-multi-preset-lookup-mode-presets-honors-extra-parents ()
+  "Mode lookup should honor parents registered with `derived-mode-add-parents'."
+  (let* ((mode 'eglot-multi-preset-tests-extra-parent-mode)
+         (presets '(("custom preset" . ("rass" "python"))))
+         (eglot-multi-preset-alist `((python-mode . ,presets)))
+         (old-extra-parents (get mode 'derived-mode-extra-parents))
+         (old-all-parents (get mode 'derived-mode--all-parents))
+         (old-python-followers (get 'python-mode 'derived-mode--followers)))
+    (unwind-protect
+        (progn
+          (derived-mode-add-parents mode '(python-mode))
+          (should (equal (eglot-multi-preset--lookup-mode-presets mode)
+                         presets)))
+      (put mode 'derived-mode-extra-parents old-extra-parents)
+      (put mode 'derived-mode--all-parents old-all-parents)
+      (put 'python-mode 'derived-mode--followers old-python-followers))))
+
 (ert-deftest eglot-multi-preset-register-rejects-default-label ()
   "Registering a preset with the default-label name should fail."
   (let* ((mode 'python-mode)

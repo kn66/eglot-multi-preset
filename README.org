@@ -16,7 +16,8 @@ Multi-server LSP preset selection for Eglot.
 - Support for per-project preset configuration
 - Force re-selection with =C-u M-x eglot=
 - Programmatic API for registering custom presets
-- Mode inheritance support (e.g., =python-ts-mode= inherits from =python-mode=)
+- Mode inheritance support via Emacs' built-in =provided-mode-derived-p=
+  (including parents registered with =derived-mode-add-parents=)
 - Language ID overrides for modes that need explicit LSP IDs (e.g. =tsx-ts-mode=)
 
 * Screenshots
