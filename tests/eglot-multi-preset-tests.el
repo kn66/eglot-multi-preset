@@ -342,6 +342,107 @@
     (eglot-multi-preset--track-command-prefix)
     (should-not eglot-multi-preset--pending-prefix-arg)))
 
+(ert-deftest eglot-multi-preset-eglot-interactive-args-captures-preset-prefix ()
+  "Interactive args should hide preset prefixes from Eglot's own prompt."
+  (let ((major-mode 'python-mode)
+        (current-prefix-arg '(4))
+        (eglot-multi-preset--pending-prefix-arg nil)
+        guess-interactive
+        guess-prefix)
+    (cl-letf (((symbol-function 'eglot-current-server)
+               (lambda () nil))
+              ((symbol-function 'eglot-multi-preset--lookup-mode-presets)
+               (lambda (_mode)
+                 '(("custom preset" . ("rass" "python")))))
+              ((symbol-function 'eglot--guess-contact)
+               (lambda (interactive)
+                 (setq guess-interactive interactive
+                       guess-prefix current-prefix-arg)
+                 '((python-mode) project eglot-lsp-server
+                   ("pyright-langserver" "--stdio")
+                   ("python")))))
+      (should (equal (eglot-multi-preset--eglot-interactive-args)
+                     '((python-mode) project eglot-lsp-server
+                       ("pyright-langserver" "--stdio")
+                       ("python") t)))
+      (should-not guess-interactive)
+      (should-not guess-prefix)
+      (should (equal eglot-multi-preset--pending-prefix-arg '(4))))))
+
+(ert-deftest eglot-multi-preset-eglot-interactive-args-keeps-native-prefix-without-presets ()
+  "Interactive args should preserve native Eglot prefix behavior without presets."
+  (let ((major-mode 'text-mode)
+        (current-prefix-arg '(4))
+        (eglot-multi-preset--pending-prefix-arg nil)
+        guess-interactive
+        guess-prefix)
+    (cl-letf (((symbol-function 'eglot-current-server)
+               (lambda () nil))
+              ((symbol-function 'eglot-multi-preset--lookup-mode-presets)
+               (lambda (_mode) nil))
+              ((symbol-function 'eglot--guess-contact)
+               (lambda (interactive)
+                 (setq guess-interactive interactive
+                       guess-prefix current-prefix-arg)
+                 '((text-mode) project eglot-lsp-server
+                   ("text-lsp")
+                   ("plaintext")))))
+      (should (equal (eglot-multi-preset--eglot-interactive-args)
+                     '((text-mode) project eglot-lsp-server
+                       ("text-lsp")
+                       ("plaintext") t)))
+      (should guess-interactive)
+      (should (equal guess-prefix '(4)))
+      (should-not eglot-multi-preset--pending-prefix-arg))))
+
+(ert-deftest eglot-multi-preset-advised-eglot-prefix-shows-preset-prompt ()
+  "Advised interactive `eglot' should show preset prompt before native prompt."
+  (let ((major-mode 'python-mode)
+        (eglot-multi-preset-auto-save 'never)
+        (eglot-multi-preset--pending-prefix-arg nil)
+        (eglot-multi-preset--in-progress nil)
+        prompt
+        guess-calls
+        connect-args)
+    (cl-letf (((symbol-function 'eglot-current-server)
+               (lambda () nil))
+              ((symbol-function 'eglot-multi-preset--lookup-mode-presets)
+               (lambda (_mode)
+                 '(("custom preset" . ("rass" "python")))))
+              ((symbol-function 'eglot-multi-preset--dir-locals-has-eglot-config-p)
+               (lambda ()
+                 '(((python-mode) . ("saved-server")))))
+              ((symbol-function 'eglot--guess-contact)
+               (lambda (interactive)
+                 (push (list interactive current-prefix-arg) guess-calls)
+                 '((python-mode) project eglot-lsp-server
+                   ("saved-server")
+                   ("python"))))
+              ((symbol-function 'completing-read)
+               (lambda (message &rest _args)
+                 (setq prompt message)
+                 "custom preset"))
+              ((symbol-function 'eglot-multi-preset--missing-executables)
+               (lambda (_contact) nil))
+              ((symbol-function 'eglot-multi-preset--apply-workspace-config)
+               (lambda (_config) nil))
+              ((symbol-function 'eglot-multi-preset--guess-contact)
+               (lambda () '("rass" "python")))
+              ((symbol-function 'eglot--connect)
+               (lambda (&rest args)
+                 (setq connect-args args)
+                 'connected)))
+      (unwind-protect
+          (progn
+            (advice-remove 'eglot #'eglot-multi-preset--maybe-select-preset)
+            (advice-add 'eglot :around #'eglot-multi-preset--maybe-select-preset)
+            (let ((prefix-arg '(4)))
+              (command-execute 'eglot))
+            (should (equal prompt "LSP preset: "))
+            (should (equal (car guess-calls) '(nil nil)))
+            (should (equal (nth 3 connect-args) '("rass" "python"))))
+        (advice-remove 'eglot #'eglot-multi-preset--maybe-select-preset)))))
+
 (ert-deftest eglot-multi-preset-maybe-select-preset-honors-captured-prefix ()
   "Captured prefix args should force preset selection even with dir-locals."
   (let ((major-mode 'python-mode)
