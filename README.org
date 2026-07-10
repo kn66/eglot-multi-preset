@@ -16,8 +16,7 @@ Multi-server LSP preset selection for Eglot.
 - Support for per-project preset configuration
 - Force re-selection with =C-u M-x eglot=
 - Programmatic API for registering custom presets
-- Mode inheritance support via Emacs' built-in =provided-mode-derived-p=
-  (including parents registered with =derived-mode-add-parents=)
+- Mode inheritance support (e.g., =python-ts-mode= inherits from =python-mode=)
 - Language ID overrides for modes that need explicit LSP IDs (e.g. =tsx-ts-mode=)
 
 * Screenshots
@@ -141,6 +140,11 @@ Alist mapping major modes to their LSP server presets. Each entry is =(MODE-OR-M
                   "--" "vscode-eslint-language-server" "--stdio"))))))
 #+end_src
 
+Directly replacing this variable is supported. Automatic rebuilds caused by
+=setopt= or Customize preserve a user-replaced table. To discard the custom
+table and return to generated built-ins plus extras, call
+=eglot-multi-preset-reset-default-presets=.
+
 ** =eglot-multi-preset-auto-save=
 
 Controls automatic saving of selected presets to =.dir-locals.el=:
@@ -193,7 +197,8 @@ built-in preset contacts:
   (eglot-multi-preset-reset-default-presets)
 #+end_src
 
-*Tip:* if you use =setopt= (or Customize), built-ins are rebuilt automatically.
+*Tip:* if you use =setopt= (or Customize), an unmodified generated table is
+rebuilt automatically. A directly replaced =eglot-multi-preset-alist= is kept.
 
 ** =eglot-multi-preset-extra-tcp-hosts=
 

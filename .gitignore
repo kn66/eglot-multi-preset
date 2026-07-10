@@ -1,2 +1,4 @@
 *.elc
 .codex
+/eglot-multi-preset-autoloads.el
+/eglot-multi-preset-pkg.el

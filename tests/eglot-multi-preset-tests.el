@@ -66,47 +66,71 @@
       (ignore-errors (eglot-multi-preset-mode 0))
       (setq-default eglot-workspace-configuration original-default))))
 
-(ert-deftest eglot-multi-preset-workspace-config-falls-back-to-saved-default ()
-  "Workspace configuration should preserve the value active before mode enable."
-  (let ((eglot-multi-preset--saved-workspace-configuration
-         '(:global (:enabled t))))
+(ert-deftest eglot-multi-preset-workspace-config-delegates-to-saved-default ()
+  "Workspace configuration should delegate when no preset or dir-local exists."
+  (let* ((server 'eglot-multi-preset-test-server)
+         (seen-server nil)
+         (eglot-multi-preset--saved-workspace-configuration
+          (lambda (current-server)
+            (setq seen-server current-server)
+            'eglot-multi-preset-fallback-config)))
     (cl-letf (((symbol-function 'eglot-multi-preset--server-project-root)
-               (lambda (_server) "/tmp/eglot-multi-preset-project/"))
+               (lambda (_server) temporary-file-directory))
               ((symbol-function 'eglot-multi-preset--server-primary-mode)
                (lambda (_server) 'python-mode))
               ((symbol-function 'hack-dir-local-variables-non-file-buffer)
                (lambda () nil)))
-      (clrhash eglot-multi-preset--project-workspace-configs)
-      (should (equal (eglot-multi-preset--workspace-configuration-function nil)
-                     `(:global (:enabled t)
-                       ,eglot-multi-preset--empty-workspace-section-key
-                       (:global (:enabled t))))))))
+      (should (eq (eglot-multi-preset--workspace-configuration-function server)
+                  'eglot-multi-preset-fallback-config))
+      (should (eq seen-server server)))))
 
-(ert-deftest eglot-multi-preset-workspace-config-is-scoped-by-mode ()
-  "Runtime workspace configs for one mode should not overwrite another mode."
-  (let ((project-root "/tmp/eglot-multi-preset-project/")
-        (ts-config '(:eslint (:validate "probe")))
-        (eglot-multi-preset--saved-workspace-configuration nil))
+(ert-deftest eglot-multi-preset-workspace-config-is-isolated-by-mode ()
+  "Preset workspace configurations should not collide within one project."
+  (let ((eglot-multi-preset--project-workspace-configs
+         (make-hash-table :test 'equal))
+        (project-root "c:/eglot-multi-preset-test-project/"))
     (cl-letf (((symbol-function 'eglot-multi-preset--current-project-root)
-               (lambda () project-root))
-              ((symbol-function 'eglot-multi-preset--server-project-root)
-               (lambda (_server) project-root))
-              ((symbol-function 'hack-dir-local-variables-non-file-buffer)
-               (lambda () nil)))
-      (clrhash eglot-multi-preset--project-workspace-configs)
+               (lambda () project-root)))
+      (let ((major-mode 'python-mode))
+        (eglot-multi-preset--apply-workspace-config 'python-config))
       (let ((major-mode 'typescript-mode))
-        (eglot-multi-preset--apply-workspace-config ts-config))
+        (eglot-multi-preset--apply-workspace-config 'typescript-config))
+      (should
+       (eq (gethash (eglot-multi-preset--workspace-config-key
+                     project-root 'python-mode)
+                    eglot-multi-preset--project-workspace-configs)
+           'python-config))
+      (should
+       (eq (gethash (eglot-multi-preset--workspace-config-key
+                     project-root 'typescript-mode)
+                    eglot-multi-preset--project-workspace-configs)
+           'typescript-config))
+      (cl-letf (((symbol-function 'eglot-multi-preset--server-project-root)
+                 (lambda (_server) project-root))
+                ((symbol-function 'eglot-multi-preset--server-primary-mode)
+                 (lambda (server)
+                   (if (eq server 'python-server)
+                       'python-mode
+                     'typescript-mode))))
+        (should
+         (eq (eglot-multi-preset--workspace-configuration-function
+              'python-server)
+             'python-config))
+        (should
+         (eq (eglot-multi-preset--workspace-configuration-function
+              'typescript-server)
+             'typescript-config)))
       (let ((major-mode 'python-mode))
         (eglot-multi-preset--apply-workspace-config nil))
-      (cl-letf (((symbol-function 'eglot-multi-preset--server-primary-mode)
-                 (lambda (_server) 'typescript-mode)))
-        (should (equal (eglot-multi-preset--workspace-configuration-function nil)
-                       `(:eslint (:validate "probe")
-                         ,eglot-multi-preset--empty-workspace-section-key
-                         (:validate "probe")))))
-      (cl-letf (((symbol-function 'eglot-multi-preset--server-primary-mode)
-                 (lambda (_server) 'python-mode)))
-        (should-not (eglot-multi-preset--workspace-configuration-function nil))))))
+      (should-not
+       (gethash (eglot-multi-preset--workspace-config-key
+                 project-root 'python-mode)
+                eglot-multi-preset--project-workspace-configs))
+      (should
+       (eq (gethash (eglot-multi-preset--workspace-config-key
+                     project-root 'typescript-mode)
+                    eglot-multi-preset--project-workspace-configs)
+           'typescript-config)))))
 
 (ert-deftest eglot-multi-preset-missing-executables-ignores-tcp-contact ()
   "TCP contacts of the form (HOST PORT) should skip executable checks."
@@ -157,23 +181,6 @@
                     'tsx-ts-mode)
                    contact))))
 
-(ert-deftest eglot-multi-preset-lookup-mode-presets-honors-extra-parents ()
-  "Mode lookup should honor parents registered with `derived-mode-add-parents'."
-  (let* ((mode 'eglot-multi-preset-tests-extra-parent-mode)
-         (presets '(("custom preset" . ("rass" "python"))))
-         (eglot-multi-preset-alist `((python-mode . ,presets)))
-         (old-extra-parents (get mode 'derived-mode-extra-parents))
-         (old-all-parents (get mode 'derived-mode--all-parents))
-         (old-python-followers (get 'python-mode 'derived-mode--followers)))
-    (unwind-protect
-        (progn
-          (derived-mode-add-parents mode '(python-mode))
-          (should (equal (eglot-multi-preset--lookup-mode-presets mode)
-                         presets)))
-      (put mode 'derived-mode-extra-parents old-extra-parents)
-      (put mode 'derived-mode--all-parents old-all-parents)
-      (put 'python-mode 'derived-mode--followers old-python-followers))))
-
 (ert-deftest eglot-multi-preset-register-rejects-default-label ()
   "Registering a preset with the default-label name should fail."
   (let* ((mode 'python-mode)
@@ -195,19 +202,36 @@
             (should (equal (car contact) "eglot-multi-preset-rass-test"))))
       (setopt eglot-multi-preset-executable-overrides original-overrides))))
 
+(ert-deftest eglot-multi-preset-setopt-preserves-user-replaced-preset-table ()
+  "Changing a built-in option should preserve a user-replaced preset table."
+  (let ((original-overrides (copy-tree eglot-multi-preset-executable-overrides))
+        (original-alist (copy-tree eglot-multi-preset-alist))
+        (original-composed (copy-tree eglot-multi-preset--last-composed-presets))
+        (custom-alist
+         '((fundamental-mode . (("custom" . ("custom-language-server")))))))
+    (unwind-protect
+        (progn
+          (setq eglot-multi-preset-alist (copy-tree custom-alist))
+          (setopt eglot-multi-preset-executable-overrides
+                  '(("rass" . "eglot-multi-preset-rass-preserve-test")))
+          (should (equal eglot-multi-preset-alist custom-alist)))
+      (setq-default eglot-multi-preset-executable-overrides original-overrides)
+      (setq eglot-multi-preset-alist original-alist
+            eglot-multi-preset--last-composed-presets original-composed))))
+
 (ert-deftest eglot-multi-preset-setopt-eslint-config-rebuilds-defaults ()
   "Changing ESLint workspace config via setopt should rebuild presets."
   (let ((original-eslint-config (copy-tree eglot-multi-preset-eslint-workspace-config))
         (new-eslint-config
          '(:eslint (:validate "probe"
-                    :workingDirectory (:mode "auto")
-                    :workingDirectories [(:mode "auto")]
-                    :packageManager "pnpm"))))
+                              :workingDirectory (:mode "auto")
+                              :workingDirectories [(:mode "auto")]
+                              :packageManager "pnpm"))))
     (unwind-protect
         (progn
           (setopt eglot-multi-preset-eslint-workspace-config new-eslint-config)
           (should (equal (eglot-multi-preset--get-workspace-config "rass: ts-ls + eslint"
-                                                                    'typescript-mode)
+                                                                   'typescript-mode)
                          new-eslint-config)))
       (setopt eglot-multi-preset-eslint-workspace-config original-eslint-config))))
 
@@ -332,8 +356,8 @@
                (lambda () '("rass" "--" "server" "--stdio"))))
       (should (equal (eglot-multi-preset--refresh-eglot-args-if-interactive args)
                      '(old-a old-b old-c
-                       ("rass" "--" "server" "--stdio")
-                       old-e t))))))
+                             ("rass" "--" "server" "--stdio")
+                             old-e t))))))
 
 (ert-deftest eglot-multi-preset-refresh-eglot-args-respects-dynamic-indexes ()
   "Interactive arg refresh should respect resolved eglot argument indexes."
@@ -358,107 +382,6 @@
           current-prefix-arg '(16))
     (eglot-multi-preset--track-command-prefix)
     (should-not eglot-multi-preset--pending-prefix-arg)))
-
-(ert-deftest eglot-multi-preset-eglot-interactive-args-captures-preset-prefix ()
-  "Interactive args should hide preset prefixes from Eglot's own prompt."
-  (let ((major-mode 'python-mode)
-        (current-prefix-arg '(4))
-        (eglot-multi-preset--pending-prefix-arg nil)
-        guess-interactive
-        guess-prefix)
-    (cl-letf (((symbol-function 'eglot-current-server)
-               (lambda () nil))
-              ((symbol-function 'eglot-multi-preset--lookup-mode-presets)
-               (lambda (_mode)
-                 '(("custom preset" . ("rass" "python")))))
-              ((symbol-function 'eglot--guess-contact)
-               (lambda (interactive)
-                 (setq guess-interactive interactive
-                       guess-prefix current-prefix-arg)
-                 '((python-mode) project eglot-lsp-server
-                   ("pyright-langserver" "--stdio")
-                   ("python")))))
-      (should (equal (eglot-multi-preset--eglot-interactive-args)
-                     '((python-mode) project eglot-lsp-server
-                       ("pyright-langserver" "--stdio")
-                       ("python") t)))
-      (should-not guess-interactive)
-      (should-not guess-prefix)
-      (should (equal eglot-multi-preset--pending-prefix-arg '(4))))))
-
-(ert-deftest eglot-multi-preset-eglot-interactive-args-keeps-native-prefix-without-presets ()
-  "Interactive args should preserve native Eglot prefix behavior without presets."
-  (let ((major-mode 'text-mode)
-        (current-prefix-arg '(4))
-        (eglot-multi-preset--pending-prefix-arg nil)
-        guess-interactive
-        guess-prefix)
-    (cl-letf (((symbol-function 'eglot-current-server)
-               (lambda () nil))
-              ((symbol-function 'eglot-multi-preset--lookup-mode-presets)
-               (lambda (_mode) nil))
-              ((symbol-function 'eglot--guess-contact)
-               (lambda (interactive)
-                 (setq guess-interactive interactive
-                       guess-prefix current-prefix-arg)
-                 '((text-mode) project eglot-lsp-server
-                   ("text-lsp")
-                   ("plaintext")))))
-      (should (equal (eglot-multi-preset--eglot-interactive-args)
-                     '((text-mode) project eglot-lsp-server
-                       ("text-lsp")
-                       ("plaintext") t)))
-      (should guess-interactive)
-      (should (equal guess-prefix '(4)))
-      (should-not eglot-multi-preset--pending-prefix-arg))))
-
-(ert-deftest eglot-multi-preset-advised-eglot-prefix-shows-preset-prompt ()
-  "Advised interactive `eglot' should show preset prompt before native prompt."
-  (let ((major-mode 'python-mode)
-        (eglot-multi-preset-auto-save 'never)
-        (eglot-multi-preset--pending-prefix-arg nil)
-        (eglot-multi-preset--in-progress nil)
-        prompt
-        guess-calls
-        connect-args)
-    (cl-letf (((symbol-function 'eglot-current-server)
-               (lambda () nil))
-              ((symbol-function 'eglot-multi-preset--lookup-mode-presets)
-               (lambda (_mode)
-                 '(("custom preset" . ("rass" "python")))))
-              ((symbol-function 'eglot-multi-preset--dir-locals-has-eglot-config-p)
-               (lambda ()
-                 '(((python-mode) . ("saved-server")))))
-              ((symbol-function 'eglot--guess-contact)
-               (lambda (interactive)
-                 (push (list interactive current-prefix-arg) guess-calls)
-                 '((python-mode) project eglot-lsp-server
-                   ("saved-server")
-                   ("python"))))
-              ((symbol-function 'completing-read)
-               (lambda (message &rest _args)
-                 (setq prompt message)
-                 "custom preset"))
-              ((symbol-function 'eglot-multi-preset--missing-executables)
-               (lambda (_contact) nil))
-              ((symbol-function 'eglot-multi-preset--apply-workspace-config)
-               (lambda (_config) nil))
-              ((symbol-function 'eglot-multi-preset--guess-contact)
-               (lambda () '("rass" "python")))
-              ((symbol-function 'eglot--connect)
-               (lambda (&rest args)
-                 (setq connect-args args)
-                 'connected)))
-      (unwind-protect
-          (progn
-            (advice-remove 'eglot #'eglot-multi-preset--maybe-select-preset)
-            (advice-add 'eglot :around #'eglot-multi-preset--maybe-select-preset)
-            (let ((prefix-arg '(4)))
-              (command-execute 'eglot))
-            (should (equal prompt "LSP preset: "))
-            (should (equal (car guess-calls) '(nil nil)))
-            (should (equal (nth 3 connect-args) '("rass" "python"))))
-        (advice-remove 'eglot #'eglot-multi-preset--maybe-select-preset)))))
 
 (ert-deftest eglot-multi-preset-maybe-select-preset-honors-captured-prefix ()
   "Captured prefix args should force preset selection even with dir-locals."
